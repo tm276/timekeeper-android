@@ -47,10 +47,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.example.timekeeper.ui.theme.TimekeeperTheme
-import com.example.timekeeper.SettingsActivity
 import com.example.timelogger.TimeFormatUtils
-import com.example.timelogger.TimeLogStore
 
 private val AppBackground = Color(0xFF121212)
 private val PanelBackground = Color(0xFF1E1E1E)
@@ -68,14 +65,14 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
+        TimeLogStore.initialize(this)
+
         setContent {
-            TimekeeperTheme {
-                Surface(
-                    modifier = Modifier.fillMaxSize(),
-                    color = AppBackground
-                ) {
-                    TimeLoggerScreen()
-                }
+            Surface(
+                modifier = Modifier.fillMaxSize(),
+                color = AppBackground
+            ) {
+                TimeLoggerScreen()
             }
         }
     }
@@ -181,7 +178,7 @@ fun TimeLoggerScreen() {
                     Button(
                         onClick = {
                             if (!running) {
-                                TimeLogStore.startNow(System.currentTimeMillis())
+                                TimeLogStore.startNow(context, System.currentTimeMillis())
                             }
                         },
                         enabled = !running,
@@ -352,6 +349,7 @@ fun TimeLoggerScreen() {
                     onClick = {
                         if (description.isNotBlank()) {
                             TimeLogStore.stopAndSave(
+                                context = context,
                                 nowMillis = System.currentTimeMillis(),
                                 description = description
                             )
