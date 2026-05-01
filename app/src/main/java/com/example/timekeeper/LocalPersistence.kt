@@ -9,11 +9,14 @@ object LocalPersistence {
     private const val KEY_ENTRIES = "entries"
     private const val KEY_ACTIVE_START = "active_start"
     private const val KEY_SETTINGS = "settings"
+    private const val KEY_NEXTCLOUD_SETTINGS = "nextcloud_settings"
     private const val KEY_DRIVE_MAPPINGS = "drive_mappings"
     private const val KEY_DRIVE_ACCOUNT_EMAIL = "drive_account_email"
+    private const val KEY_SYNC_SERVICES = "sync_services"
 
     fun saveEntries(context: Context, entries: List<TimeEntry>) {
         val array = JSONArray()
+
         entries.forEach { entry ->
             val obj = JSONObject().apply {
                 put("id", entry.id)
@@ -24,7 +27,10 @@ object LocalPersistence {
             array.put(obj)
         }
 
-        prefs(context).edit().putString(KEY_ENTRIES, array.toString()).apply()
+        prefs(context)
+            .edit()
+            .putString(KEY_ENTRIES, array.toString())
+            .apply()
     }
 
     fun loadEntries(context: Context): MutableList<TimeEntry> {
@@ -48,7 +54,10 @@ object LocalPersistence {
     }
 
     fun saveActiveStart(context: Context, activeStartMillis: Long) {
-        prefs(context).edit().putLong(KEY_ACTIVE_START, activeStartMillis).apply()
+        prefs(context)
+            .edit()
+            .putLong(KEY_ACTIVE_START, activeStartMillis)
+            .apply()
     }
 
     fun loadActiveStart(context: Context): Long {
@@ -62,7 +71,10 @@ object LocalPersistence {
             put("durationUnit", settings.durationUnit.name)
         }
 
-        prefs(context).edit().putString(KEY_SETTINGS, obj.toString()).apply()
+        prefs(context)
+            .edit()
+            .putString(KEY_SETTINGS, obj.toString())
+            .apply()
     }
 
     fun loadSettings(context: Context): TimeSettings {
@@ -78,6 +90,34 @@ object LocalPersistence {
         )
     }
 
+    fun saveNextcloudSettings(context: Context, settings: NextcloudSettings) {
+        val obj = JSONObject().apply {
+            put("serverUrl", settings.serverUrl)
+            put("username", settings.username)
+            put("appPassword", settings.appPassword)
+            put("remoteFolder", settings.remoteFolder)
+        }
+
+        prefs(context)
+            .edit()
+            .putString(KEY_NEXTCLOUD_SETTINGS, obj.toString())
+            .apply()
+    }
+
+    fun loadNextcloudSettings(context: Context): NextcloudSettings {
+        val raw = prefs(context).getString(KEY_NEXTCLOUD_SETTINGS, null)
+            ?: return NextcloudSettings.default()
+
+        val obj = JSONObject(raw)
+
+        return NextcloudSettings(
+            serverUrl = obj.getString("serverUrl"),
+            username = obj.getString("username"),
+            appPassword = obj.getString("appPassword"),
+            remoteFolder = obj.getString("remoteFolder")
+        )
+    }
+
     fun saveDriveMappings(context: Context, mappings: List<DriveFileMapping>) {
         val array = JSONArray()
         mappings.forEach { mapping ->
@@ -87,7 +127,11 @@ object LocalPersistence {
             }
             array.put(obj)
         }
-        prefs(context).edit().putString(KEY_DRIVE_MAPPINGS, array.toString()).apply()
+
+        prefs(context)
+            .edit()
+            .putString(KEY_DRIVE_MAPPINGS, array.toString())
+            .apply()
     }
 
     fun loadDriveMappings(context: Context): MutableList<DriveFileMapping> {
@@ -109,11 +153,33 @@ object LocalPersistence {
     }
 
     fun saveDriveAccountEmail(context: Context, email: String?) {
-        prefs(context).edit().putString(KEY_DRIVE_ACCOUNT_EMAIL, email).apply()
+        prefs(context)
+            .edit()
+            .putString(KEY_DRIVE_ACCOUNT_EMAIL, email)
+            .apply()
     }
 
     fun loadDriveAccountEmail(context: Context): String? {
         return prefs(context).getString(KEY_DRIVE_ACCOUNT_EMAIL, null)
+    }
+
+    fun saveSelectedSyncServices(context: Context, services: Set<SyncService>) {
+        val names = services.map { it.name }.toSet()
+        prefs(context)
+            .edit()
+            .putStringSet(KEY_SYNC_SERVICES, names)
+            .apply()
+    }
+
+    fun loadSelectedSyncServices(context: Context): Set<SyncService> {
+        val names = prefs(context).getStringSet(KEY_SYNC_SERVICES, emptySet()) ?: emptySet()
+        return names.mapNotNull {
+            try {
+                SyncService.valueOf(it)
+            } catch (_: Exception) {
+                null
+            }
+        }.toSet()
     }
 
     private fun prefs(context: Context) =

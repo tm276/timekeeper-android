@@ -1,38 +1,53 @@
 package com.example.timekeeper
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.android.gms.auth.api.signin.GoogleSignInAccount
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import com.google.android.gms.common.api.Scope
+import com.google.api.services.drive.DriveScopes
+import kotlinx.coroutines.launch
 
 class SettingsActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -44,9 +59,7 @@ class SettingsActivity : ComponentActivity() {
                 modifier = Modifier.fillMaxSize(),
                 color = Color(0xFF121212)
             ) {
-                SettingsScreen(
-                    onBack = { finish() }
-                )
+                SettingsScreen(onBack = { finish() })
             }
         }
     }
@@ -55,19 +68,53 @@ class SettingsActivity : ComponentActivity() {
 @Composable
 fun SettingsScreen(onBack: () -> Unit) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     val currentSettings = TimeLogStore.settings
+    val currentNextcloud = LocalPersistence.loadNextcloudSettings(context)
 
-    var duration by remember {
-        mutableStateOf(currentSettings.durationAmount.toString())
+    var duration by remember { mutableStateOf(currentSettings.durationAmount.toString()) }
+    var durationError by remember { mutableStateOf("") }
+
+    var serverUrl by remember { mutableStateOf(currentNextcloud.serverUrl) }
+    var username by remember { mutableStateOf(currentNextcloud.username) }
+    var appPassword by remember { mutableStateOf(currentNextcloud.appPassword) }
+    var remoteFolder by remember { mutableStateOf(currentNextcloud.remoteFolder) }
+
+    var nextcloudMessage by remember { mutableStateOf("") }
+    var driveMessage by remember { mutableStateOf("") }
+    var driveAccount by remember {
+        mutableStateOf(findConnectedDriveAccount(context))
+    }
+    var showNextcloudManualSetup by remember { mutableStateOf(false) }
+
+    val driveSignInLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
+        try {
+            val account = task.result
+            driveAccount = account
+            LocalPersistence.saveDriveAccountEmail(context, account.email)
+            driveMessage = "Google Drive connected${account.email?.let { " as $it" } ?: "."}"
+        } catch (e: Exception) {
+            driveMessage = "Google Drive sign-in failed: ${e.message ?: "Unknown error"}"
+        }
     }
 
-    var durationError by remember { mutableStateOf("") }
+    val savedNextcloudSettings = NextcloudSettings(
+        serverUrl = serverUrl.trim(),
+        username = username.trim(),
+        appPassword = appPassword,
+        remoteFolder = remoteFolder.trim()
+    )
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .background(Color(0xFF121212))
-            .padding(12.dp)
+            .verticalScroll(rememberScrollState())
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text(
             text = "Settings",
@@ -88,63 +135,33 @@ fun SettingsScreen(onBack: () -> Unit) {
                 modifier = Modifier.padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text(
-                    text = "CSV Window",
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold
-                )
-
-                Text(
-                    text = "Choose how long one CSV file stays active before a new file is created.",
-                    color = Color(0xFFCFD8DC)
-                )
+                Text("CSV Window", color = Color.White, fontWeight = FontWeight.Bold)
 
                 OutlinedTextField(
                     value = duration,
                     onValueChange = {
                         duration = it
-
                         durationError = when {
                             it.isBlank() -> ""
                             it.all(Char::isDigit) -> ""
                             else -> "Enter numbers only"
                         }
                     },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .semantics {
-                            contentDescription = "Custom duration in days"
-                        },
+                    modifier = Modifier.fillMaxWidth(),
                     label = { Text("Duration in days") },
                     singleLine = true,
                     isError = durationError.isNotBlank(),
                     supportingText = {
                         if (durationError.isNotBlank()) {
-                            Text(
-                                text = durationError,
-                                color = Color(0xFFE57373)
-                            )
+                            Text(durationError, color = Color(0xFFE57373))
                         }
                     },
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = Color(0xFF1E1E1E),
-                        unfocusedContainerColor = Color(0xFF1E1E1E),
-                        focusedBorderColor = Color(0xFF64B5F6),
-                        unfocusedBorderColor = Color(0xFF90A4AE),
-                        focusedTextColor = Color.White,
-                        unfocusedTextColor = Color.White,
-                        focusedLabelColor = Color(0xFF64B5F6),
-                        unfocusedLabelColor = Color(0xFFCFD8DC),
-                        cursorColor = Color(0xFF64B5F6),
-                        errorBorderColor = Color(0xFFE57373),
-                        errorLabelColor = Color(0xFFE57373)
-                    )
+                    colors = textFieldColors()
                 )
 
                 Button(
                     onClick = {
                         val parsed = duration.toIntOrNull()
-
                         if (parsed == null || parsed < 1) {
                             durationError = "Enter a whole number greater than 0"
                             return@Button
@@ -157,23 +174,328 @@ fun SettingsScreen(onBack: () -> Unit) {
                                 durationUnit = DurationUnit.DAYS
                             )
                         )
-
-                        onBack()
+                        nextcloudMessage = "Duration saved."
                     },
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = primaryButtonColors()
                 ) {
                     Text("Save Duration")
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+            color = Color(0xFF1E1E1E)
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text("History", color = Color.White, fontWeight = FontWeight.Bold)
+                Text("Browse saved local CSV timecards in the app.", color = Color(0xFFCFD8DC))
+                Button(
+                    onClick = {
+                        context.startActivity(Intent(context, HistoryActivity::class.java))
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = primaryButtonColors()
+                ) {
+                    Text("View Local Timecards")
+                }
+            }
+        }
+
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+            color = Color(0xFF1E1E1E)
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text("Google Drive", color = Color.White, fontWeight = FontWeight.Bold)
+                Text(
+                    text = driveAccount?.email?.let { "Connected as $it" } ?: "Not connected",
+                    color = Color(0xFFCFD8DC)
+                )
+
+                Button(
+                    onClick = {
+                        val signInClient = GoogleSignIn.getClient(context, googleSignInOptions())
+                        driveSignInLauncher.launch(signInClient.signInIntent)
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = primaryButtonColors()
+                ) {
+                    Text(if (driveAccount == null) "Connect Google Drive" else "Reconnect Google Drive")
+                }
+
+                Button(
+                    onClick = {
+                        val account = driveAccount
+                        if (account == null) {
+                            driveMessage = "Connect Google Drive first."
+                        } else {
+                            coroutineScope.launch {
+                                driveMessage = "Google Drive sync started..."
+                                val result = GoogleDriveSyncManager.syncCurrentWindow(context, account)
+                                driveMessage = if (result.isSuccess) {
+                                    "Google Drive sync complete."
+                                } else {
+                                    "Google Drive sync failed: ${result.exceptionOrNull()?.message ?: "Unknown error"}"
+                                }
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = primaryButtonColors()
+                ) {
+                    Text("Sync Current CSV to Google Drive")
+                }
+
+                Button(
+                    onClick = {
+                        val signInClient = GoogleSignIn.getClient(context, googleSignInOptions())
+                        signInClient.signOut().addOnCompleteListener {
+                            LocalPersistence.saveDriveAccountEmail(context, null)
+                            driveAccount = null
+                            driveMessage = "Google Drive disconnected."
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = secondaryButtonColors()
+                ) {
+                    Text("Disconnect Google Drive")
+                }
+
+                if (driveMessage.isNotBlank()) {
+                    Text(driveMessage, color = Color(0xFFCFD8DC))
+                }
+            }
+        }
+
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+            color = Color(0xFF1E1E1E)
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text("Nextcloud", color = Color.White, fontWeight = FontWeight.Bold)
+                Text(
+                    text = if (username.isNotBlank() && serverUrl.isNotBlank()) {
+                        "Connected settings for $username"
+                    } else {
+                        "Manual setup or browser sign-in"
+                    },
+                    color = Color(0xFFCFD8DC)
+                )
+
+                Button(
+                    onClick = {
+                        if (serverUrl.isBlank()) {
+                            nextcloudMessage = "Enter your server URL first."
+                        } else {
+                            coroutineScope.launch {
+                                nextcloudMessage = "Opening Nextcloud sign-in..."
+                                val initResult = NextcloudLoginFlowManager.startLogin(serverUrl)
+                                if (initResult.isFailure) {
+                                    nextcloudMessage = "Nextcloud sign-in failed: ${initResult.exceptionOrNull()?.message ?: "Unknown error"}"
+                                    return@launch
+                                }
+
+                                val init = initResult.getOrThrow()
+                                NextcloudLoginFlowManager.openLoginInBrowser(context, init.loginUrl)
+                                nextcloudMessage = "Finish signing in in your browser. Waiting for Nextcloud..."
+
+                                val pollResult = NextcloudLoginFlowManager.pollForResult(init)
+                                if (pollResult.isFailure) {
+                                    nextcloudMessage = "Nextcloud sign-in failed: ${pollResult.exceptionOrNull()?.message ?: "Unknown error"}"
+                                    return@launch
+                                }
+
+                                val login = pollResult.getOrThrow()
+                                serverUrl = login.server
+                                username = login.loginName
+                                appPassword = login.appPassword
+                                val newSettings = NextcloudSettings(
+                                    serverUrl = login.server,
+                                    username = login.loginName,
+                                    appPassword = login.appPassword,
+                                    remoteFolder = remoteFolder.trim().ifBlank { "TimeKeeper" }
+                                )
+                                LocalPersistence.saveNextcloudSettings(context, newSettings)
+                                nextcloudMessage = "Nextcloud connected and app password saved."
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = primaryButtonColors()
+                ) {
+                    Text("Connect with Nextcloud")
+                }
+
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    color = Color(0xFF263238)
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { showNextcloudManualSetup = !showNextcloudManualSetup },
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Manual Nextcloud Setup",
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold
+                            )
+
+                            Text(
+                                text = if (showNextcloudManualSetup) "Hide" else "Show",
+                                color = Color(0xFF64B5F6)
+                            )
+                        }
+
+                        AnimatedVisibility(visible = showNextcloudManualSetup) {
+                            Column(
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                OutlinedTextField(
+                                    value = serverUrl,
+                                    onValueChange = { serverUrl = it },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    label = { Text("Server URL") },
+                                    placeholder = { Text("https://cloud.example.com") },
+                                    singleLine = true,
+                                    colors = textFieldColors()
+                                )
+
+                                OutlinedTextField(
+                                    value = username,
+                                    onValueChange = { username = it },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    label = { Text("Username") },
+                                    singleLine = true,
+                                    colors = textFieldColors()
+                                )
+
+                                OutlinedTextField(
+                                    value = appPassword,
+                                    onValueChange = { appPassword = it },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    label = { Text("App password") },
+                                    singleLine = true,
+                                    colors = textFieldColors()
+                                )
+
+                                OutlinedTextField(
+                                    value = remoteFolder,
+                                    onValueChange = { remoteFolder = it },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    label = { Text("Remote folder") },
+                                    singleLine = true,
+                                    colors = textFieldColors()
+                                )
+
+                                Button(
+                                    onClick = {
+                                        LocalPersistence.saveNextcloudSettings(context, savedNextcloudSettings)
+                                        nextcloudMessage = "Nextcloud settings saved."
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = primaryButtonColors()
+                                ) {
+                                    Text("Save Nextcloud Settings")
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Button(
+                    onClick = {
+                        LocalPersistence.saveNextcloudSettings(context, savedNextcloudSettings)
+                        coroutineScope.launch {
+                            nextcloudMessage = "Nextcloud sync started..."
+                            val result = NextcloudSyncManager.syncCurrentWindow(context, savedNextcloudSettings)
+                            nextcloudMessage = if (result.isSuccess) {
+                                "Nextcloud sync complete."
+                            } else {
+                                "Nextcloud sync failed: ${result.exceptionOrNull()?.message ?: "Unknown error"}"
+                            }
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = primaryButtonColors()
+                ) {
+                    Text("Sync Current CSV to Nextcloud")
+                }
+
+                if (nextcloudMessage.isNotBlank()) {
+                    Text(nextcloudMessage, color = Color(0xFFCFD8DC))
+                }
+            }
+        }
 
         Button(
             onClick = onBack,
-            modifier = Modifier.fillMaxWidth()
+            modifier = Modifier.fillMaxWidth(),
+            colors = secondaryButtonColors()
         ) {
             Text("Back")
         }
     }
+
+    LaunchedEffect(Unit) {
+        driveAccount = findConnectedDriveAccount(context)
+    }
 }
+
+private fun findConnectedDriveAccount(context: android.content.Context): GoogleSignInAccount? {
+    val account = GoogleSignIn.getLastSignedInAccount(context) ?: return null
+    return if (GoogleSignIn.hasPermissions(account, Scope(DriveScopes.DRIVE_FILE))) account else null
+}
+
+private fun googleSignInOptions(): GoogleSignInOptions {
+    return GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+        .requestEmail()
+        .requestScopes(Scope(DriveScopes.DRIVE_FILE))
+        .build()
+}
+
+@Composable
+private fun textFieldColors() = OutlinedTextFieldDefaults.colors(
+    focusedContainerColor = Color(0xFF1E1E1E),
+    unfocusedContainerColor = Color(0xFF1E1E1E),
+    focusedBorderColor = Color(0xFF64B5F6),
+    unfocusedBorderColor = Color(0xFF90A4AE),
+    focusedTextColor = Color.White,
+    unfocusedTextColor = Color.White,
+    focusedLabelColor = Color(0xFF64B5F6),
+    unfocusedLabelColor = Color(0xFFCFD8DC),
+    cursorColor = Color(0xFF64B5F6)
+)
+
+@Composable
+private fun primaryButtonColors() = ButtonDefaults.buttonColors(
+    containerColor = Color(0xFF64B5F6),
+    contentColor = Color.Black
+)
+
+@Composable
+private fun secondaryButtonColors() = ButtonDefaults.buttonColors(
+    containerColor = Color(0xFF263238),
+    contentColor = Color.White
+)

@@ -72,6 +72,9 @@ dependencies {
     implementation("com.google.apis:google-api-services-drive:v3-rev20250701-2.0.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.10.2")
 
+    // ✅ Add this line for WebDAV support (MKCOL, PUT, etc.)
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

@@ -1,5 +1,6 @@
 package com.example.timekeeper
 
+import android.app.AlertDialog
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -22,7 +23,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AlertDialog as ComposeAlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -47,7 +48,9 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.lifecycleScope
 import com.example.timelogger.TimeFormatUtils
+import kotlinx.coroutines.launch
 
 private val AppBackground = Color(0xFF121212)
 private val PanelBackground = Color(0xFF1E1E1E)
@@ -60,7 +63,13 @@ private val SecondaryText = Color(0xFFCFD8DC)
 private val BorderColor = Color(0xFF90A4AE)
 private val EmptyStateText = Color(0xFFB0BEC5)
 
+private enum class TimeDialogMode {
+    Stop,
+    NextTask
+}
+
 class MainActivity : ComponentActivity() {
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -76,18 +85,98 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    fun onSyncClicked() {
+        val available = getAvailableSyncServices(this)
+        val selected = LocalPersistence.loadSelectedSyncServices(this)
+
+        if (available.isEmpty()) {
+            AlertDialog.Builder(this)
+                .setTitle("No sync services")
+                .setMessage("Sign into Google Drive or configure Nextcloud to enable sync.")
+                .setPositiveButton("OK", null)
+                .show()
+            return
+        }
+
+        if (selected.isEmpty()) {
+            showSyncSelectionDialog(available)
+        } else {
+            lifecycleScope.launch {
+                val result = SyncOrchestrator.sync(this@MainActivity)
+                showSyncResult(result)
+            }
+        }
+    }
+
+    private fun showSyncSelectionDialog(available: Set<SyncService>) {
+        val services = available.toList()
+
+        val labels = services.map {
+            when (it) {
+                SyncService.GOOGLE_DRIVE -> "Google Drive"
+                SyncService.NEXTCLOUD -> "Nextcloud"
+            }
+        }.toTypedArray()
+
+        val checked = BooleanArray(labels.size)
+
+        AlertDialog.Builder(this)
+            .setTitle("Select sync destinations")
+            .setMultiChoiceItems(labels, checked) { _, which, isChecked ->
+                checked[which] = isChecked
+            }
+            .setNeutralButton("Select all") { _, _ ->
+                LocalPersistence.saveSelectedSyncServices(this, services.toSet())
+                lifecycleScope.launch {
+                    val result = SyncOrchestrator.sync(this@MainActivity)
+                    showSyncResult(result)
+                }
+            }
+            .setPositiveButton("Sync") { _, _ ->
+                val selected = services.mapIndexedNotNull { i, s ->
+                    if (checked[i]) s else null
+                }.toSet()
+
+                LocalPersistence.saveSelectedSyncServices(this, selected)
+
+                lifecycleScope.launch {
+                    val result = SyncOrchestrator.sync(this@MainActivity)
+                    showSyncResult(result)
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun showSyncResult(result: Result<Unit>) {
+        val message = if (result.isSuccess) {
+            "Sync completed."
+        } else {
+            "Sync failed: ${result.exceptionOrNull()?.message ?: "Unknown error"}"
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("Sync status")
+            .setMessage(message)
+            .setPositiveButton("OK", null)
+            .show()
+    }
 }
 
 @Composable
 fun TimeLoggerScreen() {
     val context = LocalContext.current
+    val activity = context as? MainActivity
+
     val storeVersion = TimeLogStore.version.intValue
     val entries = remember(storeVersion) { TimeLogStore.entries.toList().asReversed() }
     val running = remember(storeVersion) { TimeLogStore.isRunning() }
     val activeStart = TimeLogStore.activeStartMillis.longValue
 
-    var showStopDialog by remember { mutableStateOf(false) }
+    var showDescriptionDialog by remember { mutableStateOf(false) }
     var description by remember { mutableStateOf("") }
+    var dialogMode by remember { mutableStateOf(TimeDialogMode.Stop) }
 
     Column(
         modifier = Modifier
@@ -136,12 +225,12 @@ fun TimeLoggerScreen() {
 
             Button(
                 onClick = {
-                    CsvShareUtils.shareCurrentCsv(context)
+                    activity?.onSyncClicked()
                 },
                 modifier = Modifier
                     .weight(1f)
                     .semantics {
-                        contentDescription = "Export current CSV"
+                        contentDescription = "Sync to connected services"
                     },
                 shape = RoundedCornerShape(16.dp),
                 colors = ButtonDefaults.buttonColors(
@@ -149,7 +238,7 @@ fun TimeLoggerScreen() {
                     contentColor = Color.Black
                 )
             ) {
-                Text("Export CSV")
+                Text("Sync")
             }
         }
 
@@ -173,20 +262,15 @@ fun TimeLoggerScreen() {
             Column(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text(
-                    text = if (running) "Session in progress" else "Ready to start",
-                    color = PrimaryText,
-                    fontWeight = FontWeight.Bold
-                )
-
                 if (running) {
                     Text(
-                        text = "Started at: ${TimeFormatUtils.formatTime(activeStart)} on ${TimeFormatUtils.formatDate(activeStart)}",
-                        color = SecondaryText
+                        text = "Session in progress",
+                        color = PrimaryText,
+                        fontWeight = FontWeight.Bold
                     )
-                } else {
+
                     Text(
-                        text = "Tap Start to begin tracking time.",
+                        text = "Started at: ${TimeFormatUtils.formatTime(activeStart)} on ${TimeFormatUtils.formatDate(activeStart)}",
                         color = SecondaryText
                     )
                 }
@@ -211,7 +295,9 @@ fun TimeLoggerScreen() {
                         shape = RoundedCornerShape(20.dp),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = PrimaryAction,
-                            contentColor = Color.Black
+                            contentColor = Color.Black,
+                            disabledContainerColor = PrimaryAction.copy(alpha = 0.35f),
+                            disabledContentColor = Color.Black.copy(alpha = 0.7f)
                         )
                     ) {
                         Icon(
@@ -226,7 +312,8 @@ fun TimeLoggerScreen() {
                         onClick = {
                             if (running) {
                                 description = ""
-                                showStopDialog = true
+                                dialogMode = TimeDialogMode.Stop
+                                showDescriptionDialog = true
                             }
                         },
                         enabled = running,
@@ -239,11 +326,39 @@ fun TimeLoggerScreen() {
                         shape = RoundedCornerShape(20.dp),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = DestructiveAction,
-                            contentColor = Color.Black
+                            contentColor = Color.Black,
+                            disabledContainerColor = DestructiveAction.copy(alpha = 0.35f),
+                            disabledContentColor = Color.Black.copy(alpha = 0.7f)
                         )
                     ) {
                         Text("Stop")
                     }
+                }
+
+                Button(
+                    onClick = {
+                        if (running) {
+                            description = ""
+                            dialogMode = TimeDialogMode.NextTask
+                            showDescriptionDialog = true
+                        }
+                    },
+                    enabled = running,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .semantics {
+                            contentDescription = "Next task"
+                            role = Role.Button
+                        },
+                    shape = RoundedCornerShape(20.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = SecondaryAction,
+                        contentColor = PrimaryText,
+                        disabledContainerColor = BorderColor.copy(alpha = 0.35f),
+                        disabledContentColor = PrimaryText.copy(alpha = 0.7f)
+                    )
+                ) {
+                    Text("Next Task")
                 }
             }
         }
@@ -337,11 +452,17 @@ fun TimeLoggerScreen() {
         }
     }
 
-    if (showStopDialog) {
-        AlertDialog(
-            onDismissRequest = { showStopDialog = false },
+    if (showDescriptionDialog) {
+        ComposeAlertDialog(
+            onDismissRequest = { showDescriptionDialog = false },
             title = {
-                Text("Describe this time period")
+                Text(
+                    if (dialogMode == TimeDialogMode.NextTask) {
+                        "Describe the task you just finished"
+                    } else {
+                        "Describe this time period"
+                    }
+                )
             },
             text = {
                 OutlinedTextField(
@@ -368,12 +489,24 @@ fun TimeLoggerScreen() {
                 Button(
                     onClick = {
                         if (description.isNotBlank()) {
-                            TimeLogStore.stopAndSave(
-                                context = context,
-                                nowMillis = System.currentTimeMillis(),
-                                description = description
-                            )
-                            showStopDialog = false
+                            when (dialogMode) {
+                                TimeDialogMode.Stop -> {
+                                    TimeLogStore.stopAndSave(
+                                        context = context,
+                                        nowMillis = System.currentTimeMillis(),
+                                        description = description
+                                    )
+                                }
+
+                                TimeDialogMode.NextTask -> {
+                                    TimeLogStore.stopSaveAndStartNext(
+                                        context = context,
+                                        nowMillis = System.currentTimeMillis(),
+                                        description = description
+                                    )
+                                }
+                            }
+                            showDescriptionDialog = false
                         }
                     },
                     colors = ButtonDefaults.buttonColors(
@@ -386,7 +519,7 @@ fun TimeLoggerScreen() {
             },
             dismissButton = {
                 Button(
-                    onClick = { showStopDialog = false },
+                    onClick = { showDescriptionDialog = false },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = SecondaryAction,
                         contentColor = PrimaryText
