@@ -1,13 +1,22 @@
-package com.example.timelogger
+package com.example.timekeeper
 
 enum class DurationUnit {
     DAYS,
     WEEKS
 }
 
-data class TimeLogSettings(
+data class TimeSettings(
     val anchorMillis: Long,
     val durationAmount: Int,
-    val durationUnit: DurationUnit,
-    val remoteMode: String = "local"
-)
+    val durationUnit: DurationUnit
+) {
+    companion object {
+        fun default(): TimeSettings {
+            return TimeSettings(
+                anchorMillis = System.currentTimeMillis(),
+                durationAmount = 7,
+                durationUnit = DurationUnit.DAYS
+            )
+        }
+    }
+}

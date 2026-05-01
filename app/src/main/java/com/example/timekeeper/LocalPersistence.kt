@@ -1,0 +1,91 @@
+package com.example.timekeeper
+
+import android.content.Context
+import org.json.JSONArray
+import org.json.JSONObject
+
+object LocalPersistence {
+    private const val PREFS_NAME = "timekeeper_prefs"
+    private const val KEY_ENTRIES = "entries"
+    private const val KEY_ACTIVE_START = "active_start"
+    private const val KEY_SETTINGS = "settings"
+
+    fun saveEntries(context: Context, entries: List<TimeEntry>) {
+        val array = JSONArray()
+
+        entries.forEach { entry ->
+            val obj = JSONObject().apply {
+                put("id", entry.id)
+                put("startMillis", entry.startMillis)
+                put("stopMillis", entry.stopMillis)
+                put("description", entry.description)
+            }
+            array.put(obj)
+        }
+
+        prefs(context)
+            .edit()
+            .putString(KEY_ENTRIES, array.toString())
+            .apply()
+    }
+
+    fun loadEntries(context: Context): MutableList<TimeEntry> {
+        val raw = prefs(context).getString(KEY_ENTRIES, null) ?: return mutableListOf()
+        val array = JSONArray(raw)
+        val entries = mutableListOf<TimeEntry>()
+
+        for (i in 0 until array.length()) {
+            val obj = array.getJSONObject(i)
+            entries.add(
+                TimeEntry(
+                    id = obj.getString("id"),
+                    startMillis = obj.getLong("startMillis"),
+                    stopMillis = obj.getLong("stopMillis"),
+                    description = obj.getString("description")
+                )
+            )
+        }
+
+        return entries
+    }
+
+    fun saveActiveStart(context: Context, activeStartMillis: Long) {
+        prefs(context)
+            .edit()
+            .putLong(KEY_ACTIVE_START, activeStartMillis)
+            .apply()
+    }
+
+    fun loadActiveStart(context: Context): Long {
+        return prefs(context).getLong(KEY_ACTIVE_START, 0L)
+    }
+
+    fun saveSettings(context: Context, settings: TimeSettings) {
+        val obj = JSONObject().apply {
+            put("anchorMillis", settings.anchorMillis)
+            put("durationAmount", settings.durationAmount)
+            put("durationUnit", settings.durationUnit.name)
+        }
+
+        prefs(context)
+            .edit()
+            .putString(KEY_SETTINGS, obj.toString())
+            .apply()
+    }
+
+    fun loadSettings(context: Context): TimeSettings {
+        val raw = prefs(context).getString(KEY_SETTINGS, null)
+            ?: return TimeSettings.default()
+
+        val obj = JSONObject(raw)
+
+        return TimeSettings(
+            anchorMillis = obj.getLong("anchorMillis"),
+            durationAmount = obj.getInt("durationAmount"),
+            durationUnit = DurationUnit.valueOf(obj.getString("durationUnit"))
+        )
+    }
+
+    private fun prefs(context: Context) =
+        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+}

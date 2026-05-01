@@ -1,4 +1,4 @@
-package com.example.timelogger
+package com.example.timekeeper
 
 data class TimeEntry(
     val id: String,
