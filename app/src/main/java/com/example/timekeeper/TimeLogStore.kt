@@ -1,5 +1,14 @@
 package com.example.timekeeper
 
+import com.example.timekeeper.CsvWindowManager
+import com.example.timekeeper.GoogleDriveSyncManager
+import com.example.timekeeper.LocalPersistence
+import com.example.timekeeper.TimeEntry
+import com.example.timekeeper.TimeSettings
+
+
+
+
 import android.content.Context
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -53,6 +62,23 @@ object TimeLogStore {
         persistAll(context)
     }
 
+    fun stopSaveAndStartNext(context: Context, nowMillis: Long, description: String) {
+        val start = activeStartMillis.longValue
+        if (start <= 0L) return
+
+        entries.add(
+            TimeEntry(
+                id = UUID.randomUUID().toString(),
+                startMillis = start,
+                stopMillis = nowMillis,
+                description = description.trim()
+            )
+        )
+
+        activeStartMillis.longValue = nowMillis
+        persistAll(context)
+    }
+
     fun removeEntry(context: Context, id: String) {
         entries.removeAll { it.id == id }
         persistAll(context)
@@ -80,3 +106,4 @@ object TimeLogStore {
         version.intValue = version.intValue + 1
     }
 }
+

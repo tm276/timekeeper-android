@@ -31,9 +31,9 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -59,6 +59,11 @@ private val PrimaryText = Color(0xFFF5F5F5)
 private val SecondaryText = Color(0xFFCFD8DC)
 private val BorderColor = Color(0xFF90A4AE)
 private val EmptyStateText = Color(0xFFB0BEC5)
+
+private enum class TimeDialogMode {
+    Stop,
+    NextTask
+}
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -86,8 +91,9 @@ fun TimeLoggerScreen() {
     val running = remember(storeVersion) { TimeLogStore.isRunning() }
     val activeStart = TimeLogStore.activeStartMillis.longValue
 
-    var showStopDialog by remember { mutableStateOf(false) }
+    var showDescriptionDialog by remember { mutableStateOf(false) }
     var description by remember { mutableStateOf("") }
+    var dialogMode by remember { mutableStateOf(TimeDialogMode.Stop) }
 
     Column(
         modifier = Modifier
@@ -173,20 +179,15 @@ fun TimeLoggerScreen() {
             Column(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text(
-                    text = if (running) "Session in progress" else "Ready to start",
-                    color = PrimaryText,
-                    fontWeight = FontWeight.Bold
-                )
-
                 if (running) {
                     Text(
-                        text = "Started at: ${TimeFormatUtils.formatTime(activeStart)} on ${TimeFormatUtils.formatDate(activeStart)}",
-                        color = SecondaryText
+                        text = "Session in progress",
+                        color = PrimaryText,
+                        fontWeight = FontWeight.Bold
                     )
-                } else {
+
                     Text(
-                        text = "Tap Start to begin tracking time.",
+                        text = "Started at: ${TimeFormatUtils.formatTime(activeStart)} on ${TimeFormatUtils.formatDate(activeStart)}",
                         color = SecondaryText
                     )
                 }
@@ -211,7 +212,9 @@ fun TimeLoggerScreen() {
                         shape = RoundedCornerShape(20.dp),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = PrimaryAction,
-                            contentColor = Color.Black
+                            contentColor = Color.Black,
+                            disabledContainerColor = PrimaryAction.copy(alpha = 0.35f),
+                            disabledContentColor = Color.Black.copy(alpha = 0.7f)
                         )
                     ) {
                         Icon(
@@ -226,7 +229,8 @@ fun TimeLoggerScreen() {
                         onClick = {
                             if (running) {
                                 description = ""
-                                showStopDialog = true
+                                dialogMode = TimeDialogMode.Stop
+                                showDescriptionDialog = true
                             }
                         },
                         enabled = running,
@@ -239,11 +243,39 @@ fun TimeLoggerScreen() {
                         shape = RoundedCornerShape(20.dp),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = DestructiveAction,
-                            contentColor = Color.Black
+                            contentColor = Color.Black,
+                            disabledContainerColor = DestructiveAction.copy(alpha = 0.35f),
+                            disabledContentColor = Color.Black.copy(alpha = 0.7f)
                         )
                     ) {
                         Text("Stop")
                     }
+                }
+
+                Button(
+                    onClick = {
+                        if (running) {
+                            description = ""
+                            dialogMode = TimeDialogMode.NextTask
+                            showDescriptionDialog = true
+                        }
+                    },
+                    enabled = running,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .semantics {
+                            contentDescription = "Next task"
+                            role = Role.Button
+                        },
+                    shape = RoundedCornerShape(20.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = SecondaryAction,
+                        contentColor = PrimaryText,
+                        disabledContainerColor = BorderColor.copy(alpha = 0.35f),
+                        disabledContentColor = PrimaryText.copy(alpha = 0.7f)
+                    )
+                ) {
+                    Text("Next Task")
                 }
             }
         }
@@ -337,11 +369,17 @@ fun TimeLoggerScreen() {
         }
     }
 
-    if (showStopDialog) {
+    if (showDescriptionDialog) {
         AlertDialog(
-            onDismissRequest = { showStopDialog = false },
+            onDismissRequest = { showDescriptionDialog = false },
             title = {
-                Text("Describe this time period")
+                Text(
+                    if (dialogMode == TimeDialogMode.NextTask) {
+                        "Describe the task you just finished"
+                    } else {
+                        "Describe this time period"
+                    }
+                )
             },
             text = {
                 OutlinedTextField(
@@ -368,12 +406,24 @@ fun TimeLoggerScreen() {
                 Button(
                     onClick = {
                         if (description.isNotBlank()) {
-                            TimeLogStore.stopAndSave(
-                                context = context,
-                                nowMillis = System.currentTimeMillis(),
-                                description = description
-                            )
-                            showStopDialog = false
+                            when (dialogMode) {
+                                TimeDialogMode.Stop -> {
+                                    TimeLogStore.stopAndSave(
+                                        context = context,
+                                        nowMillis = System.currentTimeMillis(),
+                                        description = description
+                                    )
+                                }
+
+                                TimeDialogMode.NextTask -> {
+                                    TimeLogStore.stopSaveAndStartNext(
+                                        context = context,
+                                        nowMillis = System.currentTimeMillis(),
+                                        description = description
+                                    )
+                                }
+                            }
+                            showDescriptionDialog = false
                         }
                     },
                     colors = ButtonDefaults.buttonColors(
@@ -386,7 +436,7 @@ fun TimeLoggerScreen() {
             },
             dismissButton = {
                 Button(
-                    onClick = { showStopDialog = false },
+                    onClick = { showDescriptionDialog = false },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = SecondaryAction,
                         contentColor = PrimaryText

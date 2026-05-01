@@ -22,6 +22,11 @@
         </provider>
 
         <activity
+            android:name=".HistoryActivity"
+            android:exported="false"
+            android:theme="@style/Theme.TimeKeeper" />
+
+        <activity
             android:name=".SettingsActivity"
             android:exported="false"
             android:theme="@style/Theme.TimeKeeper" />
