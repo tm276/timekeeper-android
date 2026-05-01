@@ -37,8 +37,6 @@ object NextcloudSyncManager {
                 )
             }
 
-            ensureFolderExists(settings)
-
             val encodedUsername = URLEncoder.encode(settings.username, "UTF-8")
             val trimmedServer = settings.serverUrl.trimEnd('/')
             val trimmedFolder = settings.remoteFolder.trim('/')
@@ -56,7 +54,9 @@ object NextcloudSyncManager {
             }
 
             currentFile.inputStream().use { input ->
-                BufferedInputStream(input).copyTo(connection.outputStream)
+                connection.outputStream.use { output ->
+                    BufferedInputStream(input).copyTo(output)
+                }
             }
 
             val code = connection.responseCode
@@ -69,28 +69,6 @@ object NextcloudSyncManager {
             Result.success(Unit)
         } catch (e: Exception) {
             Result.failure(e)
-        }
-    }
-
-    private fun ensureFolderExists(settings: NextcloudSettings) {
-        val encodedUsername = URLEncoder.encode(settings.username, "UTF-8")
-        val trimmedServer = settings.serverUrl.trimEnd('/')
-        val trimmedFolder = settings.remoteFolder.trim('/')
-
-        val folderUrl =
-            "$trimmedServer/remote.php/dav/files/$encodedUsername/$trimmedFolder"
-
-        val auth = basicAuth(settings.username, settings.appPassword)
-
-        val connection = (URL(folderUrl).openConnection() as HttpURLConnection).apply {
-            requestMethod = "MKCOL"
-            setRequestProperty("Authorization", auth)
-        }
-
-        val code = connection.responseCode
-
-        if (code !in listOf(201, 405)) {
-            throw IllegalStateException("Could not create/access remote folder. HTTP $code")
         }
     }
 
