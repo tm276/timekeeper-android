@@ -7,9 +7,12 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -82,6 +85,7 @@ fun SettingsScreen(onBack: () -> Unit) {
     var driveAccount by remember {
         mutableStateOf(findConnectedDriveAccount(context))
     }
+    var showNextcloudManualSetup by remember { mutableStateOf(false) }
 
     val driveSignInLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -292,43 +296,6 @@ fun SettingsScreen(onBack: () -> Unit) {
                     color = Color(0xFFCFD8DC)
                 )
 
-                OutlinedTextField(
-                    value = serverUrl,
-                    onValueChange = { serverUrl = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Server URL") },
-                    placeholder = { Text("https://cloud.example.com") },
-                    singleLine = true,
-                    colors = textFieldColors()
-                )
-
-                OutlinedTextField(
-                    value = username,
-                    onValueChange = { username = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Username") },
-                    singleLine = true,
-                    colors = textFieldColors()
-                )
-
-                OutlinedTextField(
-                    value = appPassword,
-                    onValueChange = { appPassword = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("App password") },
-                    singleLine = true,
-                    colors = textFieldColors()
-                )
-
-                OutlinedTextField(
-                    value = remoteFolder,
-                    onValueChange = { remoteFolder = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Remote folder") },
-                    singleLine = true,
-                    colors = textFieldColors()
-                )
-
                 Button(
                     onClick = {
                         if (serverUrl.isBlank()) {
@@ -373,15 +340,88 @@ fun SettingsScreen(onBack: () -> Unit) {
                     Text("Connect with Nextcloud")
                 }
 
-                Button(
-                    onClick = {
-                        LocalPersistence.saveNextcloudSettings(context, savedNextcloudSettings)
-                        nextcloudMessage = "Nextcloud settings saved."
-                    },
+                Surface(
                     modifier = Modifier.fillMaxWidth(),
-                    colors = primaryButtonColors()
+                    shape = RoundedCornerShape(16.dp),
+                    color = Color(0xFF263238)
                 ) {
-                    Text("Save Nextcloud Settings")
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { showNextcloudManualSetup = !showNextcloudManualSetup },
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Manual Nextcloud Setup",
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold
+                            )
+
+                            Text(
+                                text = if (showNextcloudManualSetup) "Hide" else "Show",
+                                color = Color(0xFF64B5F6)
+                            )
+                        }
+
+                        AnimatedVisibility(visible = showNextcloudManualSetup) {
+                            Column(
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                OutlinedTextField(
+                                    value = serverUrl,
+                                    onValueChange = { serverUrl = it },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    label = { Text("Server URL") },
+                                    placeholder = { Text("https://cloud.example.com") },
+                                    singleLine = true,
+                                    colors = textFieldColors()
+                                )
+
+                                OutlinedTextField(
+                                    value = username,
+                                    onValueChange = { username = it },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    label = { Text("Username") },
+                                    singleLine = true,
+                                    colors = textFieldColors()
+                                )
+
+                                OutlinedTextField(
+                                    value = appPassword,
+                                    onValueChange = { appPassword = it },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    label = { Text("App password") },
+                                    singleLine = true,
+                                    colors = textFieldColors()
+                                )
+
+                                OutlinedTextField(
+                                    value = remoteFolder,
+                                    onValueChange = { remoteFolder = it },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    label = { Text("Remote folder") },
+                                    singleLine = true,
+                                    colors = textFieldColors()
+                                )
+
+                                Button(
+                                    onClick = {
+                                        LocalPersistence.saveNextcloudSettings(context, savedNextcloudSettings)
+                                        nextcloudMessage = "Nextcloud settings saved."
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = primaryButtonColors()
+                                ) {
+                                    Text("Save Nextcloud Settings")
+                                }
+                            }
+                        }
+                    }
                 }
 
                 Button(
