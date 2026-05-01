@@ -22,6 +22,7 @@ object TimeLogStore {
         activeStartMillis.longValue = LocalPersistence.loadActiveStart(context)
         settings = LocalPersistence.loadSettings(context)
         CsvWindowManager.rewriteAllWindows(context, settings, entries)
+        GoogleDriveSyncManager.initialize(context)
         version.intValue = version.intValue + 1
     }
 
