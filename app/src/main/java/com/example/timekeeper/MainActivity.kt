@@ -109,15 +109,17 @@ fun TimeLoggerScreen() {
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(bottom = 12.dp),
-            horizontalArrangement = Arrangement.End
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Button(
                 onClick = {
                     context.startActivity(Intent(context, SettingsActivity::class.java))
                 },
-                modifier = Modifier.semantics {
-                    contentDescription = "Open settings"
-                },
+                modifier = Modifier
+                    .weight(1f)
+                    .semantics {
+                        contentDescription = "Open settings"
+                    },
                 shape = RoundedCornerShape(16.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = PrimaryAction,
@@ -130,6 +132,24 @@ fun TimeLoggerScreen() {
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("Settings")
+            }
+
+            Button(
+                onClick = {
+                    CsvShareUtils.shareCurrentCsv(context)
+                },
+                modifier = Modifier
+                    .weight(1f)
+                    .semantics {
+                        contentDescription = "Export current CSV"
+                    },
+                shape = RoundedCornerShape(16.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = PrimaryAction,
+                    contentColor = Color.Black
+                )
+            ) {
+                Text("Export CSV")
             }
         }
 
