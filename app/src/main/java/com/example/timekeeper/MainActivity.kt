@@ -1,5 +1,6 @@
 package com.example.timekeeper
 
+import android.app.AlertDialog
 import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -22,7 +23,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AlertDialog as ComposeAlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -31,9 +32,9 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,7 +48,9 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.lifecycleScope
 import com.example.timelogger.TimeFormatUtils
+import kotlinx.coroutines.launch
 
 private val AppBackground = Color(0xFF121212)
 private val PanelBackground = Color(0xFF1E1E1E)
@@ -66,6 +69,7 @@ private enum class TimeDialogMode {
 }
 
 class MainActivity : ComponentActivity() {
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -81,11 +85,90 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    fun onSyncClicked() {
+        val available = getAvailableSyncServices(this)
+        val selected = LocalPersistence.loadSelectedSyncServices(this)
+
+        if (available.isEmpty()) {
+            AlertDialog.Builder(this)
+                .setTitle("No sync services")
+                .setMessage("Sign into Google Drive or configure Nextcloud to enable sync.")
+                .setPositiveButton("OK", null)
+                .show()
+            return
+        }
+
+        if (selected.isEmpty()) {
+            showSyncSelectionDialog(available)
+        } else {
+            lifecycleScope.launch {
+                val result = SyncOrchestrator.sync(this@MainActivity)
+                showSyncResult(result)
+            }
+        }
+    }
+
+    private fun showSyncSelectionDialog(available: Set<SyncService>) {
+        val services = available.toList()
+
+        val labels = services.map {
+            when (it) {
+                SyncService.GOOGLE_DRIVE -> "Google Drive"
+                SyncService.NEXTCLOUD -> "Nextcloud"
+            }
+        }.toTypedArray()
+
+        val checked = BooleanArray(labels.size)
+
+        AlertDialog.Builder(this)
+            .setTitle("Select sync destinations")
+            .setMultiChoiceItems(labels, checked) { _, which, isChecked ->
+                checked[which] = isChecked
+            }
+            .setNeutralButton("Select all") { _, _ ->
+                LocalPersistence.saveSelectedSyncServices(this, services.toSet())
+                lifecycleScope.launch {
+                    val result = SyncOrchestrator.sync(this@MainActivity)
+                    showSyncResult(result)
+                }
+            }
+            .setPositiveButton("Sync") { _, _ ->
+                val selected = services.mapIndexedNotNull { i, s ->
+                    if (checked[i]) s else null
+                }.toSet()
+
+                LocalPersistence.saveSelectedSyncServices(this, selected)
+
+                lifecycleScope.launch {
+                    val result = SyncOrchestrator.sync(this@MainActivity)
+                    showSyncResult(result)
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun showSyncResult(result: Result<Unit>) {
+        val message = if (result.isSuccess) {
+            "Sync completed."
+        } else {
+            "Sync failed: ${result.exceptionOrNull()?.message ?: "Unknown error"}"
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle("Sync status")
+            .setMessage(message)
+            .setPositiveButton("OK", null)
+            .show()
+    }
 }
 
 @Composable
 fun TimeLoggerScreen() {
     val context = LocalContext.current
+    val activity = context as? MainActivity
+
     val storeVersion = TimeLogStore.version.intValue
     val entries = remember(storeVersion) { TimeLogStore.entries.toList().asReversed() }
     val running = remember(storeVersion) { TimeLogStore.isRunning() }
@@ -142,12 +225,12 @@ fun TimeLoggerScreen() {
 
             Button(
                 onClick = {
-                    CsvShareUtils.shareCurrentCsv(context)
+                    activity?.onSyncClicked()
                 },
                 modifier = Modifier
                     .weight(1f)
                     .semantics {
-                        contentDescription = "Export current CSV"
+                        contentDescription = "Sync to connected services"
                     },
                 shape = RoundedCornerShape(16.dp),
                 colors = ButtonDefaults.buttonColors(
@@ -155,7 +238,7 @@ fun TimeLoggerScreen() {
                     contentColor = Color.Black
                 )
             ) {
-                Text("Export CSV")
+                Text("Sync")
             }
         }
 
@@ -370,7 +453,7 @@ fun TimeLoggerScreen() {
     }
 
     if (showDescriptionDialog) {
-        AlertDialog(
+        ComposeAlertDialog(
             onDismissRequest = { showDescriptionDialog = false },
             title = {
                 Text(

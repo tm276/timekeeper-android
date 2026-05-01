@@ -12,6 +12,8 @@ object LocalPersistence {
     private const val KEY_NEXTCLOUD_SETTINGS = "nextcloud_settings"
     private const val KEY_DRIVE_MAPPINGS = "drive_mappings"
     private const val KEY_DRIVE_ACCOUNT_EMAIL = "drive_account_email"
+    private const val KEY_SYNC_SERVICES = "sync_services"
+
     fun saveEntries(context: Context, entries: List<TimeEntry>) {
         val array = JSONArray()
 
@@ -159,6 +161,25 @@ object LocalPersistence {
 
     fun loadDriveAccountEmail(context: Context): String? {
         return prefs(context).getString(KEY_DRIVE_ACCOUNT_EMAIL, null)
+    }
+
+    fun saveSelectedSyncServices(context: Context, services: Set<SyncService>) {
+        val names = services.map { it.name }.toSet()
+        prefs(context)
+            .edit()
+            .putStringSet(KEY_SYNC_SERVICES, names)
+            .apply()
+    }
+
+    fun loadSelectedSyncServices(context: Context): Set<SyncService> {
+        val names = prefs(context).getStringSet(KEY_SYNC_SERVICES, emptySet()) ?: emptySet()
+        return names.mapNotNull {
+            try {
+                SyncService.valueOf(it)
+            } catch (_: Exception) {
+                null
+            }
+        }.toSet()
     }
 
     private fun prefs(context: Context) =
