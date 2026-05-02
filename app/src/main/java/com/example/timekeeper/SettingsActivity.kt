@@ -1,5 +1,9 @@
 package com.example.timekeeper
 
+// OPTION B: Refactored accessibility version.
+// Keeps the existing SettingsActivity behavior, but centralizes recurring accessibility patterns
+// like headings, larger touch targets, and full-row switches in small helper functions.
+
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -42,6 +46,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
@@ -106,11 +116,20 @@ private fun SettingsScreen(
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text(
                     text = "Client not found",
+                    modifier = Modifier.settingsAccessibleHeading(),
                     color = SettingsPrimaryText,
                     fontWeight = FontWeight.Bold
                 )
                 Spacer(modifier = Modifier.height(12.dp))
-                Button(onClick = onBack) {
+                Button(
+                    onClick = onBack,
+                    modifier = Modifier
+                        .heightIn(min = 56.dp)
+                        .semantics {
+                            role = Role.Button
+                            contentDescription = "Go back"
+                        }
+                ) {
                     Text("Back")
                 }
             }
@@ -216,6 +235,7 @@ private fun SettingsScreen(
             text = "${client.clientName} Settings",
             modifier = Modifier
                 .fillMaxWidth()
+                .semantics { heading() }
                 .padding(start = 12.dp, bottom = 4.dp),
             color = SettingsPrimaryText,
             fontWeight = FontWeight.Bold
@@ -227,7 +247,13 @@ private fun SettingsScreen(
         ) {
             Button(
                 onClick = onBack,
-                modifier = Modifier.weight(1f),
+                modifier = Modifier
+                    .weight(1f)
+                    .heightIn(min = 56.dp)
+                    .semantics {
+                        role = Role.Button
+                        contentDescription = "Go back to client"
+                    },
                 shape = RoundedCornerShape(16.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = SettingsSecondaryAction,
@@ -249,6 +275,7 @@ private fun SettingsScreen(
             ) {
                 Text(
                     text = "Identity",
+                    modifier = Modifier.settingsAccessibleHeading(),
                     color = SettingsPrimaryText,
                     fontWeight = FontWeight.Bold
                 )
@@ -282,7 +309,9 @@ private fun SettingsScreen(
                         saveClient(newGlobalUserName = userName)
                         statusMessage = "Name saved."
                     },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 56.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = SettingsPrimaryAction,
                         contentColor = Color.Black
@@ -304,47 +333,28 @@ private fun SettingsScreen(
             ) {
                 Text(
                     text = "Sync",
+                    modifier = Modifier.settingsAccessibleHeading(),
                     color = SettingsPrimaryText,
                     fontWeight = FontWeight.Bold
                 )
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Auto sync",
-                        modifier = Modifier.weight(1f),
-                        color = SettingsPrimaryText
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Switch(
-                        checked = autoSyncEnabled,
-                        onCheckedChange = {
-                            autoSyncEnabled = it
-                            saveClient(autoSync = it)
-                        }
-                    )
-                }
+                AccessibleSettingsSwitchRow(
+                    label = "Auto sync",
+                    checked = autoSyncEnabled,
+                    onCheckedChange = {
+                        autoSyncEnabled = it
+                        saveClient(autoSync = it)
+                    }
+                )
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Enable Nextcloud sync",
-                        modifier = Modifier.weight(1f),
-                        color = SettingsPrimaryText
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Switch(
-                        checked = syncNextcloudEnabled,
-                        onCheckedChange = {
-                            syncNextcloudEnabled = it
-                            saveClient(nextcloudSync = it)
-                        }
-                    )
-                }
+                AccessibleSettingsSwitchRow(
+                    label = "Nextcloud sync",
+                    checked = syncNextcloudEnabled,
+                    onCheckedChange = {
+                        syncNextcloudEnabled = it
+                        saveClient(nextcloudSync = it)
+                    }
+                )
 
                 Text(
                     text = "Nextcloud folder: ${nextcloudFolder.ifBlank { "Not set" }}",
@@ -366,7 +376,9 @@ private fun SettingsScreen(
                         }
                     },
                     enabled = !isManualSyncRunning,
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 56.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = SettingsPrimaryAction,
                         contentColor = Color.Black
@@ -376,7 +388,11 @@ private fun SettingsScreen(
                 }
 
                 if (statusMessage.isNotBlank()) {
-                    Text(text = statusMessage, color = SettingsSecondaryText)
+                    Text(
+                        text = "Status: $statusMessage",
+                        color = SettingsSecondaryText,
+                        modifier = Modifier.semantics { contentDescription = "Status: $statusMessage" }
+                    )
                 }
             }
         }
@@ -392,6 +408,7 @@ private fun SettingsScreen(
             ) {
                 Text(
                     text = "CSV Window",
+                    modifier = Modifier.settingsAccessibleHeading(),
                     color = SettingsPrimaryText,
                     fontWeight = FontWeight.Bold
                 )
@@ -404,7 +421,12 @@ private fun SettingsScreen(
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { showWeekEndingOptions = !showWeekEndingOptions },
+                        .heightIn(min = 72.dp)
+                        .clickable { showWeekEndingOptions = !showWeekEndingOptions }
+                        .semantics {
+                            role = Role.Button
+                            contentDescription = "Week ends on ${selectedWeekEndDay.displayName()}. Tap to choose a different day."
+                        },
                     shape = RoundedCornerShape(16.dp),
                     color = SettingsCardBackground
                 ) {
@@ -441,7 +463,13 @@ private fun SettingsScreen(
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
+                                        .heightIn(min = 56.dp)
                                         .clickable { selectedWeekEndDay = day }
+                                        .semantics {
+                                            role = Role.RadioButton
+                                            contentDescription = "Week ends on ${day.displayName()}"
+                                            stateDescription = if (day == selectedWeekEndDay) "Selected" else "Not selected"
+                                        }
                                         .padding(vertical = 6.dp),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
@@ -500,7 +528,9 @@ private fun SettingsScreen(
                         statusMessage = "Weekly CSV window saved."
                         localFilesVersion += 1
                     },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 56.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = SettingsPrimaryAction,
                         contentColor = Color.Black
@@ -522,6 +552,7 @@ private fun SettingsScreen(
             ) {
                 Text(
                     text = "Services",
+                    modifier = Modifier.settingsAccessibleHeading(),
                     color = SettingsPrimaryText,
                     fontWeight = FontWeight.Bold
                 )
@@ -531,7 +562,9 @@ private fun SettingsScreen(
                         showNextcloudConnect = !showNextcloudConnect
                         if (showNextcloudConnect) showNextcloudManual = false
                     },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 56.dp),
                     shape = RoundedCornerShape(18.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = SettingsPrimaryAction,
@@ -666,7 +699,9 @@ private fun SettingsScreen(
                         showNextcloudManual = !showNextcloudManual
                         if (showNextcloudManual) showNextcloudConnect = false
                     },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 56.dp),
                     shape = RoundedCornerShape(18.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = SettingsSecondaryAction,
@@ -788,7 +823,9 @@ private fun SettingsScreen(
             ) {
                 Button(
                     onClick = { showLocalFiles = !showLocalFiles },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 56.dp),
                     shape = RoundedCornerShape(18.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = SettingsSecondaryAction,
@@ -817,7 +854,21 @@ private fun SettingsScreen(
                                 localFiles.forEach { file ->
                                     val isChecked = selectedFiles.contains(file.name)
                                     Row(
-                                        modifier = Modifier.fillMaxWidth(),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .heightIn(min = 56.dp)
+                                            .clickable {
+                                                if (isChecked) {
+                                                    selectedFiles.remove(file.name)
+                                                } else if (!selectedFiles.contains(file.name)) {
+                                                    selectedFiles.add(file.name)
+                                                }
+                                            }
+                                            .semantics {
+                                                role = Role.Checkbox
+                                                contentDescription = "Local CSV file ${file.name}"
+                                                stateDescription = if (isChecked) "Selected" else "Not selected"
+                                            },
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                         Checkbox(
@@ -832,7 +883,7 @@ private fun SettingsScreen(
                                         )
                                         Spacer(modifier = Modifier.width(8.dp))
                                         Text(
-                                            text = file.name,
+                                            text = if (isChecked) "Selected: ${file.name}" else file.name,
                                             modifier = Modifier.weight(1f),
                                             color = SettingsPrimaryText
                                         )
@@ -901,6 +952,7 @@ private fun SettingsScreen(
             ) {
                 Text(
                     text = "Repair",
+                    modifier = Modifier.settingsAccessibleHeading(),
                     color = SettingsPrimaryText,
                     fontWeight = FontWeight.Bold
                 )
@@ -921,7 +973,9 @@ private fun SettingsScreen(
                         localFilesVersion += 1
                         statusMessage = "CSV files regenerated."
                     },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 56.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = SettingsPrimaryAction,
                         contentColor = Color.Black
@@ -943,13 +997,16 @@ private fun SettingsScreen(
             ) {
                 Text(
                     text = "Danger Zone",
+                    modifier = Modifier.settingsAccessibleHeading(),
                     color = SettingsPrimaryText,
                     fontWeight = FontWeight.Bold
                 )
 
                 Button(
                     onClick = { showDeleteEntriesConfirm = true },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 56.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = SettingsDangerAction,
                         contentColor = Color.Black
@@ -971,6 +1028,12 @@ private fun SettingsScreen(
             text = { Text("This will permanently delete all saved time entries for this client.") },
             confirmButton = {
                 Button(
+                    modifier = Modifier
+                        .heightIn(min = 56.dp)
+                        .semantics {
+                            role = Role.Button
+                            contentDescription = "Confirm delete all client entries"
+                        },
                     onClick = {
                         store.deleteEntriesForClient(client.id)
                         CsvWindowManager.rewriteAllWindows(
@@ -993,6 +1056,12 @@ private fun SettingsScreen(
             },
             dismissButton = {
                 Button(
+                    modifier = Modifier
+                        .heightIn(min = 56.dp)
+                        .semantics {
+                            role = Role.Button
+                            contentDescription = "Cancel delete all client entries"
+                        },
                     onClick = { showDeleteEntriesConfirm = false },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = SettingsSecondaryAction,
@@ -1005,6 +1074,48 @@ private fun SettingsScreen(
         )
     }
 }
+
+
+@Composable
+private fun AccessibleSettingsSwitchRow(
+    label: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = 64.dp)
+            .clickable { onCheckedChange(!checked) }
+            .semantics {
+                role = Role.Switch
+                contentDescription = label
+                stateDescription = if (checked) "On" else "Off"
+            },
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = if (checked) "$label: On" else "$label: Off",
+            modifier = Modifier.weight(1f),
+            color = SettingsPrimaryText
+        )
+        Spacer(modifier = Modifier.width(12.dp))
+        Switch(
+            checked = checked,
+            onCheckedChange = onCheckedChange
+        )
+    }
+}
+
+private fun Modifier.settingsAccessibleButton(label: String): Modifier = this
+    .heightIn(min = 56.dp)
+    .semantics {
+        role = Role.Button
+        contentDescription = label
+    }
+
+private fun Modifier.settingsAccessibleHeading(): Modifier = this
+    .semantics { heading() }
 
 private fun WeekEndDay.displayName(): String {
     return when (this) {

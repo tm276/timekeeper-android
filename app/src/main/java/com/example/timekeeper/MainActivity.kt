@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -37,6 +38,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 
 private val MainAppBackground = Color(0xFF121212)
@@ -91,7 +97,8 @@ private fun MainScreen() {
             text = "TimeKeeper",
             modifier = Modifier
                 .align(Alignment.CenterHorizontally)
-                .padding(vertical = 12.dp),
+                .padding(vertical = 12.dp)
+                .semantics { heading() },
             color = MainPrimaryText,
             fontWeight = FontWeight.Bold
         )
@@ -107,13 +114,20 @@ private fun MainScreen() {
             ) {
                 Text(
                     text = "Clients",
+                    modifier = Modifier.semantics { heading() },
                     color = MainPrimaryText,
                     fontWeight = FontWeight.Bold
                 )
 
                 Button(
                     onClick = { showCreateDialog = true },
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 56.dp)
+                        .semantics {
+                            role = Role.Button
+                            contentDescription = "Make a new client"
+                        },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MainPrimaryAction,
                         contentColor = Color.Black
@@ -149,6 +163,15 @@ private fun MainScreen() {
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
+                            .heightIn(min = 72.dp)
+                            .semantics {
+                                role = Role.Button
+                                contentDescription = if (client.userName.isNotBlank()) {
+                                    "Open client ${client.clientName}, user ${client.userName}"
+                                } else {
+                                    "Open client ${client.clientName}"
+                                }
+                            }
                             .clickable {
                                 context.startActivity(
                                     Intent(context, ClientActivity::class.java)
@@ -186,6 +209,12 @@ private fun MainScreen() {
                             ) {
                                 Button(
                                     onClick = { editingClient = client },
+                                    modifier = Modifier
+                                        .heightIn(min = 56.dp)
+                                        .semantics {
+                                            role = Role.Button
+                                            contentDescription = "Edit client name for ${client.clientName}"
+                                        },
                                     colors = ButtonDefaults.buttonColors(
                                         containerColor = MainSecondaryAction,
                                         contentColor = MainPrimaryText
@@ -198,6 +227,12 @@ private fun MainScreen() {
 
                                 Button(
                                     onClick = { deletingClient = client },
+                                    modifier = Modifier
+                                        .heightIn(min = 56.dp)
+                                        .semantics {
+                                            role = Role.Button
+                                            contentDescription = "Delete client ${client.clientName}"
+                                        },
                                     colors = ButtonDefaults.buttonColors(
                                         containerColor = MainDestructiveAction,
                                         contentColor = Color.Black
@@ -255,13 +290,19 @@ private fun MainScreen() {
             titleContentColor = MainPrimaryText,
             textContentColor = MainSecondaryText,
             title = { Text("Delete Client") },
-            text = { Text("Delete ${client.clientName}?") },
+            text = { Text("Delete client ${client.clientName}? This action cannot be undone.") },
             confirmButton = {
                 Button(
                     onClick = {
                         store.deleteClient(client.id)
                         deletingClient = null
                     },
+                    modifier = Modifier
+                        .heightIn(min = 56.dp)
+                        .semantics {
+                            role = Role.Button
+                            contentDescription = "Confirm delete client ${client.clientName}"
+                        },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MainDestructiveAction,
                         contentColor = Color.Black
@@ -273,6 +314,12 @@ private fun MainScreen() {
             dismissButton = {
                 Button(
                     onClick = { deletingClient = null },
+                    modifier = Modifier
+                        .heightIn(min = 56.dp)
+                        .semantics {
+                            role = Role.Button
+                            contentDescription = "Cancel deleting client ${client.clientName}"
+                        },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MainSecondaryAction,
                         contentColor = MainPrimaryText
@@ -300,12 +347,17 @@ private fun ClientNameDialog(
         containerColor = MainPanelBackground,
         titleContentColor = MainPrimaryText,
         textContentColor = MainSecondaryText,
-        title = { Text(title) },
+        title = { Text(title, modifier = Modifier.semantics { heading() }) },
         text = {
             OutlinedTextField(
                 value = value,
                 onValueChange = { value = it },
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 56.dp)
+                    .semantics {
+                        contentDescription = "Client name"
+                    },
                 label = { Text("Client Name") },
                 singleLine = true,
                 colors = OutlinedTextFieldDefaults.colors(
@@ -324,6 +376,12 @@ private fun ClientNameDialog(
         confirmButton = {
             Button(
                 onClick = { onConfirm(value) },
+                modifier = Modifier
+                    .heightIn(min = 56.dp)
+                    .semantics {
+                        role = Role.Button
+                        contentDescription = "$confirmLabel client name"
+                    },
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MainPrimaryAction,
                     contentColor = Color.Black
@@ -335,6 +393,12 @@ private fun ClientNameDialog(
         dismissButton = {
             Button(
                 onClick = onDismiss,
+                modifier = Modifier
+                    .heightIn(min = 56.dp)
+                    .semantics {
+                        role = Role.Button
+                        contentDescription = "Cancel client name dialog"
+                    },
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MainSecondaryAction,
                     contentColor = MainPrimaryText
