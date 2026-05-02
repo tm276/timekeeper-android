@@ -119,7 +119,11 @@ private fun ClientScreen(
             contentAlignment = Alignment.Center
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("Client not found", color = ClientPrimaryText, fontWeight = FontWeight.Bold)
+                Text(
+                    text = "Client not found",
+                    color = ClientPrimaryText,
+                    fontWeight = FontWeight.Bold
+                )
                 Spacer(modifier = Modifier.height(12.dp))
                 Button(
                     onClick = onBack,
@@ -138,6 +142,17 @@ private fun ClientScreen(
     val entries = store.getEntriesForClient(client.id).asReversed()
     val running = store.isClientActive(client.id)
     val activeStart = store.activeStartMillis
+    val window = CsvWindowManager.calculateWindow(store.settings, System.currentTimeMillis())
+    val safeClientName = client.clientName
+        .trim()
+        .replace(Regex("[^A-Za-z0-9._-]+"), "_")
+        .trim('_')
+        .ifBlank { "client" }
+    val fileName = "timelog_${safeClientName}_${window.startDate}_to_${window.endDate}.csv"
+    val weekEntries = entries.filter {
+        it.stopMillis in window.startMillis until window.endExclusiveMillis
+    }
+    val totalMinutes = weekEntries.sumOf { it.durationMinutes }
 
     var showDescriptionDialog by remember { mutableStateOf(false) }
     var description by remember { mutableStateOf("") }
@@ -148,14 +163,14 @@ private fun ClientScreen(
             .fillMaxSize()
             .background(ClientAppBackground)
             .verticalScroll(rememberScrollState())
-            .padding(12.dp),
+            .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text(
             text = client.clientName,
             modifier = Modifier
-                .align(Alignment.CenterHorizontally)
-                .padding(vertical = 12.dp),
+                .fillMaxWidth()
+                .padding(top = 12.dp, bottom = 4.dp, start = 12.dp),
             color = ClientPrimaryText,
             fontWeight = FontWeight.Bold
         )
@@ -191,6 +206,30 @@ private fun ClientScreen(
                 )
             ) {
                 Text("Back")
+            }
+        }
+
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+            color = ClientPanelBackground
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text("Current Week", color = ClientSecondaryText)
+                Text(
+                    text = "${window.startDate} → ${window.endDate}",
+                    color = ClientPrimaryText,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text("CSV File", color = ClientSecondaryText)
+                Text(
+                    text = fileName,
+                    color = ClientPrimaryText
+                )
             }
         }
 
@@ -274,6 +313,24 @@ private fun ClientScreen(
                         }
                     }
                 }
+            }
+        }
+
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+            color = ClientPanelBackground
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text("This Week Total", color = ClientSecondaryText)
+                Text(
+                    text = "$totalMinutes min",
+                    color = ClientPrimaryText,
+                    fontWeight = FontWeight.Bold
+                )
             }
         }
 
