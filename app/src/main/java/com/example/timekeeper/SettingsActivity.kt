@@ -48,31 +48,44 @@ import com.google.api.services.drive.DriveScopes
 import kotlinx.coroutines.launch
 
 class SettingsActivity : ComponentActivity() {
+
+    companion object {
+        const val EXTRA_CLIENT_ID = "client_id"
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        val clientId = intent.getStringExtra(EXTRA_CLIENT_ID)
 
         setContent {
             Surface(
                 modifier = Modifier.fillMaxSize(),
                 color = Color(0xFF121212)
             ) {
-                SettingsScreen(onBack = { finish() })
+                SettingsScreen(
+                    clientId = clientId,
+                    onBack = { finish() }
+                )
             }
         }
     }
 }
 
 @Composable
-fun SettingsScreen(onBack: () -> Unit) {
+fun SettingsScreen(
+    clientId: String?,
+    onBack: () -> Unit
+) {
     val context = LocalContext.current
     val appContext = context.applicationContext
     val coroutineScope = rememberCoroutineScope()
     val store = remember { TimeLogStore(appContext) }
 
     val currentSettings = store.settings
-    val currentClient = remember(store.clients, store.activeClientId) {
-        getSettingsClient(store)
+    val currentClient = remember(store.clients, store.activeClientId, clientId) {
+        getSettingsClient(store, clientId)
     }
     val currentNextcloud = currentClient?.let {
         NextcloudSettings(
@@ -119,7 +132,7 @@ fun SettingsScreen(onBack: () -> Unit) {
             val account = task.result
             driveAccount = account
 
-            val client = getSettingsClient(store)
+            val client = getSettingsClient(store, clientId)
             if (client != null) {
                 store.updateClient(
                     client.copy(
@@ -280,7 +293,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                 Button(
                     onClick = {
                         val account = driveAccount
-                        val client = getSettingsClient(store)
+                        val client = getSettingsClient(store, clientId)
                         if (account == null) {
                             driveMessage = "Connect Google Drive first."
                         } else if (client == null) {
@@ -313,7 +326,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                     onClick = {
                         val signInClient = GoogleSignIn.getClient(context, googleSignInOptions())
                         signInClient.signOut().addOnCompleteListener {
-                            val client = getSettingsClient(store)
+                            val client = getSettingsClient(store, clientId)
                             if (client != null) {
                                 store.updateClient(client.copy(googleDriveAccount = ""))
                             }
@@ -381,7 +394,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                                 appPassword = login.appPassword
                                 remoteFolder = remoteFolder.trim().ifBlank { "TimeKeeper" }
 
-                                val client = getSettingsClient(store)
+                                val client = getSettingsClient(store, clientId)
                                 if (client != null) {
                                     store.updateClient(
                                         client.copy(
@@ -473,7 +486,7 @@ fun SettingsScreen(onBack: () -> Unit) {
 
                                 Button(
                                     onClick = {
-                                        val client = getSettingsClient(store)
+                                        val client = getSettingsClient(store, clientId)
                                         if (client == null) {
                                             nextcloudMessage = "No client available to save."
                                         } else {
@@ -500,7 +513,7 @@ fun SettingsScreen(onBack: () -> Unit) {
 
                 Button(
                     onClick = {
-                        val client = getSettingsClient(store)
+                        val client = getSettingsClient(store, clientId)
                         if (client == null) {
                             nextcloudMessage = "No client available to sync."
                         } else {
@@ -559,8 +572,10 @@ fun SettingsScreen(onBack: () -> Unit) {
     }
 }
 
-private fun getSettingsClient(store: TimeLogStore): ClientProfile? {
-    return store.getActiveClient() ?: store.clients.firstOrNull()
+private fun getSettingsClient(store: TimeLogStore, clientId: String?): ClientProfile? {
+    return store.getClientById(clientId)
+        ?: store.getActiveClient()
+        ?: store.clients.firstOrNull()
 }
 
 private fun findConnectedDriveAccount(context: android.content.Context): GoogleSignInAccount? {
