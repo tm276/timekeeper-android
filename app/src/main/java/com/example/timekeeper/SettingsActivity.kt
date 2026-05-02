@@ -7,6 +7,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -43,6 +44,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
 
 private val SettingsAppBackground = Color(0xFF121212)
 private val SettingsPanelBackground = Color(0xFF1E1E1E)
@@ -118,9 +122,13 @@ private fun SettingsScreen(
     var showNextcloudManual by remember { mutableStateOf(false) }
     var showLocalFiles by remember { mutableStateOf(false) }
     var showDeleteEntriesConfirm by remember { mutableStateOf(false) }
+    var showWeekEndPicker by remember { mutableStateOf(false) }
 
     var userName by remember(client.id, store.settings.userName) {
         mutableStateOf(store.settings.userName)
+    }
+    var selectedWeekEndDay by remember(client.id, store.settings.weekEndDay) {
+        mutableStateOf(store.settings.weekEndDay)
     }
     var nextcloudUrl by remember(client.id) { mutableStateOf(client.nextcloudUrl) }
     var nextcloudUser by remember(client.id) { mutableStateOf(client.nextcloudUser) }
@@ -148,13 +156,19 @@ private fun SettingsScreen(
         folder: String = nextcloudFolder,
         autoSync: Boolean = autoSyncEnabled,
         nextcloudSync: Boolean = syncNextcloudEnabled,
-        newGlobalUserName: String = userName
+        newGlobalUserName: String = userName,
+        weekEndDay: WeekEndDay = selectedWeekEndDay
     ) {
         val trimmedGlobalUserName = newGlobalUserName.trim()
-
-        store.updateSettings(
-            store.settings.copy(userName = trimmedGlobalUserName)
+        val updatedSettings = store.settings.copy(
+            anchorMillis = anchorMillisForWeekEnd(weekEndDay),
+            durationAmount = 1,
+            durationUnit = DurationUnit.WEEKS,
+            userName = trimmedGlobalUserName,
+            weekEndDay = weekEndDay
         )
+
+        store.updateSettings(updatedSettings)
 
         val updatedClient = client.copy(
             userName = trimmedGlobalUserName,
@@ -167,6 +181,12 @@ private fun SettingsScreen(
             syncNextcloudEnabled = nextcloudSync
         )
         store.updateClient(updatedClient)
+        CsvWindowManager.rewriteAllWindows(
+            context = appContext,
+            client = updatedClient,
+            settings = updatedSettings,
+            entries = store.getEntriesForClient(updatedClient.id)
+        )
         ClientSyncScheduler.rescheduleIfEnabled(appContext, updatedClient)
     }
 
@@ -255,6 +275,68 @@ private fun SettingsScreen(
                     )
                 ) {
                     Text("Save Name")
+                }
+            }
+        }
+
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+            color = SettingsPanelBackground
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = "CSV Window",
+                    color = SettingsPrimaryText,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Text(
+                    text = "Create a new CSV file every week.",
+                    color = SettingsSecondaryText
+                )
+
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { showWeekEndPicker = true },
+                    shape = RoundedCornerShape(16.dp),
+                    color = SettingsCardBackground
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text(
+                            text = "Week Ends On",
+                            color = SettingsSecondaryText
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = selectedWeekEndDay.displayName(),
+                            color = SettingsPrimaryText,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                Text(
+                    text = "Changing this rewrites this client's local CSV windows to match the new weekly boundary.",
+                    color = SettingsSecondaryText
+                )
+
+                Button(
+                    onClick = {
+                        saveClient(weekEndDay = selectedWeekEndDay)
+                        statusMessage = "Weekly CSV window saved."
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = SettingsPrimaryAction,
+                        contentColor = Color.Black
+                    )
+                ) {
+                    Text("Save Weekly Window")
                 }
             }
         }
@@ -767,15 +849,61 @@ private fun SettingsScreen(
         }
     }
 
+    if (showWeekEndPicker) {
+        AlertDialog(
+            onDismissRequest = { showWeekEndPicker = false },
+            containerColor = SettingsPanelBackground,
+            titleContentColor = SettingsPrimaryText,
+            textContentColor = SettingsSecondaryText,
+            title = { Text("Week Ends On") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    WeekEndDay.values().forEach { day ->
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    selectedWeekEndDay = day
+                                    showWeekEndPicker = false
+                                },
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (day == selectedWeekEndDay) {
+                                SettingsCardBackground
+                            } else {
+                                SettingsPanelBackground
+                            }
+                        ) {
+                            Text(
+                                text = day.displayName(),
+                                modifier = Modifier.padding(12.dp),
+                                color = SettingsPrimaryText,
+                                fontWeight = if (day == selectedWeekEndDay) FontWeight.Bold else FontWeight.Normal
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = { showWeekEndPicker = false },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = SettingsPrimaryAction,
+                        contentColor = Color.Black
+                    )
+                ) {
+                    Text("Done")
+                }
+            }
+        )
+    }
+
     if (showDeleteEntriesConfirm) {
         AlertDialog(
             onDismissRequest = { showDeleteEntriesConfirm = false },
             containerColor = SettingsPanelBackground,
             titleContentColor = SettingsPrimaryText,
             textContentColor = SettingsSecondaryText,
-            title = {
-                Text("Delete all client entries?")
-            },
+            title = { Text("Delete all client entries?") },
             text = {
                 Text("This will permanently delete all saved time entries for this client.")
             },
@@ -783,8 +911,15 @@ private fun SettingsScreen(
                 Button(
                     onClick = {
                         store.deleteEntriesForClient(client.id)
+                        CsvWindowManager.rewriteAllWindows(
+                            context = appContext,
+                            client = client,
+                            settings = store.settings,
+                            entries = emptyList()
+                        )
                         statusMessage = "Deleted all client entries."
                         showDeleteEntriesConfirm = false
+                        localFilesVersion += 1
                     },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = SettingsDangerAction,
@@ -809,4 +944,41 @@ private fun SettingsScreen(
     }
 }
 
+private fun WeekEndDay.displayName(): String {
+    return when (this) {
+        WeekEndDay.SUNDAY -> "Sunday"
+        WeekEndDay.MONDAY -> "Monday"
+        WeekEndDay.TUESDAY -> "Tuesday"
+        WeekEndDay.WEDNESDAY -> "Wednesday"
+        WeekEndDay.THURSDAY -> "Thursday"
+        WeekEndDay.FRIDAY -> "Friday"
+        WeekEndDay.SATURDAY -> "Saturday"
+    }
+}
 
+private fun anchorMillisForWeekEnd(weekEndDay: WeekEndDay): Long {
+    val zone = ZoneId.systemDefault()
+    val today = LocalDate.now(zone)
+
+    val weekEndValue = weekEndDay.isoDayValue()
+    val weekStartValue = if (weekEndValue == 7) 1 else weekEndValue + 1
+
+    var anchorDate = today
+    while (anchorDate.dayOfWeek.value != weekStartValue) {
+        anchorDate = anchorDate.minusDays(1)
+    }
+
+    return anchorDate.atStartOfDay(zone).toInstant().toEpochMilli()
+}
+
+private fun WeekEndDay.isoDayValue(): Int {
+    return when (this) {
+        WeekEndDay.MONDAY -> 1
+        WeekEndDay.TUESDAY -> 2
+        WeekEndDay.WEDNESDAY -> 3
+        WeekEndDay.THURSDAY -> 4
+        WeekEndDay.FRIDAY -> 5
+        WeekEndDay.SATURDAY -> 6
+        WeekEndDay.SUNDAY -> 7
+    }
+}
