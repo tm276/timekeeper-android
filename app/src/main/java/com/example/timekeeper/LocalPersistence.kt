@@ -17,6 +17,7 @@ class LocalPersistence(context: Context) {
             put("durationAmount", settings.durationAmount)
             put("durationUnit", settings.durationUnit.name)
             put("userName", settings.userName)
+            put("weekEndDay", settings.weekEndDay.name)
         }
         prefs.edit().putString("settings", json.toString()).apply()
     }
@@ -26,11 +27,14 @@ class LocalPersistence(context: Context) {
         val obj = JSONObject(json)
         return TimeSettings(
             anchorMillis = obj.optLong("anchorMillis", System.currentTimeMillis()),
-            durationAmount = obj.optInt("durationAmount", 7),
+            durationAmount = obj.optInt("durationAmount", 1),
             durationUnit = DurationUnit.valueOf(
-                obj.optString("durationUnit", DurationUnit.DAYS.name)
+                obj.optString("durationUnit", DurationUnit.WEEKS.name)
             ),
-            userName = obj.optString("userName", "")
+            userName = obj.optString("userName", ""),
+            weekEndDay = runCatching {
+                WeekEndDay.valueOf(obj.optString("weekEndDay", WeekEndDay.SUNDAY.name))
+            }.getOrDefault(WeekEndDay.SUNDAY)
         )
     }
 
@@ -46,15 +50,12 @@ class LocalPersistence(context: Context) {
                 put("userName", client.userName)
                 put("csvFileName", client.csvFileName)
                 put("localFolder", client.localFolder)
-
                 put("googleDriveAccount", client.googleDriveAccount)
                 put("googleDriveFolder", client.googleDriveFolder)
-
                 put("nextcloudUrl", client.nextcloudUrl)
                 put("nextcloudUser", client.nextcloudUser)
                 put("nextcloudPassword", client.nextcloudPassword)
                 put("nextcloudFolder", client.nextcloudFolder)
-
                 put("autoSyncEnabled", client.autoSyncEnabled)
                 put("syncGoogleDriveEnabled", client.syncGoogleDriveEnabled)
                 put("syncNextcloudEnabled", client.syncNextcloudEnabled)
@@ -71,25 +72,24 @@ class LocalPersistence(context: Context) {
 
         for (i in 0 until array.length()) {
             val obj = array.getJSONObject(i)
-
-            val client = ClientProfile(
-                id = obj.getString("id"),
-                clientName = obj.getString("clientName"),
-                userName = obj.optString("userName", ""),
-                csvFileName = obj.optString("csvFileName", "time_log.csv"),
-                localFolder = obj.optString("localFolder", ""),
-                googleDriveAccount = obj.optString("googleDriveAccount", ""),
-                googleDriveFolder = obj.optString("googleDriveFolder", ""),
-                nextcloudUrl = obj.optString("nextcloudUrl", ""),
-                nextcloudUser = obj.optString("nextcloudUser", ""),
-                nextcloudPassword = obj.optString("nextcloudPassword", ""),
-                nextcloudFolder = obj.optString("nextcloudFolder", ""),
-                autoSyncEnabled = obj.optBoolean("autoSyncEnabled", false),
-                syncGoogleDriveEnabled = obj.optBoolean("syncGoogleDriveEnabled", false),
-                syncNextcloudEnabled = obj.optBoolean("syncNextcloudEnabled", false)
+            result.add(
+                ClientProfile(
+                    id = obj.getString("id"),
+                    clientName = obj.getString("clientName"),
+                    userName = obj.optString("userName", ""),
+                    csvFileName = obj.optString("csvFileName", "time_log.csv"),
+                    localFolder = obj.optString("localFolder", ""),
+                    googleDriveAccount = obj.optString("googleDriveAccount", ""),
+                    googleDriveFolder = obj.optString("googleDriveFolder", ""),
+                    nextcloudUrl = obj.optString("nextcloudUrl", ""),
+                    nextcloudUser = obj.optString("nextcloudUser", ""),
+                    nextcloudPassword = obj.optString("nextcloudPassword", ""),
+                    nextcloudFolder = obj.optString("nextcloudFolder", ""),
+                    autoSyncEnabled = obj.optBoolean("autoSyncEnabled", false),
+                    syncGoogleDriveEnabled = obj.optBoolean("syncGoogleDriveEnabled", false),
+                    syncNextcloudEnabled = obj.optBoolean("syncNextcloudEnabled", false)
+                )
             )
-
-            result.add(client)
         }
 
         return result
@@ -118,12 +118,10 @@ class LocalPersistence(context: Context) {
     fun loadEntries(): List<TimeEntry> {
         val json = prefs.getString("entries", null) ?: return emptyList()
         val array = JSONArray(json)
-
         val result = mutableListOf<TimeEntry>()
 
         for (i in 0 until array.length()) {
             val obj = array.getJSONObject(i)
-
             result.add(
                 TimeEntry(
                     clientId = obj.getString("clientId"),
@@ -162,7 +160,6 @@ class LocalPersistence(context: Context) {
 
         for (i in 0 until array.length()) {
             val obj = array.getJSONObject(i)
-
             result.add(
                 DriveFileMapping(
                     windowKey = obj.optString("windowKey", ""),
