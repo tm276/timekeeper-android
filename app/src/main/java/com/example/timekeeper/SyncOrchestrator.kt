@@ -10,26 +10,54 @@ object SyncOrchestrator {
     suspend fun sync(context: Context): Result<Unit> = withContext(Dispatchers.IO) {
         try {
             val available = getAvailableSyncServices(context)
-            val selected = LocalPersistence.loadSelectedSyncServices(context)
-            val active = selected.intersect(available)
-
-            if (active.isEmpty()) {
+            if (available.isEmpty()) {
                 return@withContext Result.success(Unit)
             }
 
-            for (service in active) {
-                when (service) {
-                    SyncService.GOOGLE_DRIVE -> {
-                        val account = GoogleSignIn.getLastSignedInAccount(context)
-                        if (account != null) {
-                            GoogleDriveSyncManager.syncCurrentWindow(context, account)
-                        }
-                    }
+            val appContext = context.applicationContext
+            val store = TimeLogStore(appContext)
+            val client = store.getActiveClient() ?: store.clients.firstOrNull()
+            ?: return@withContext Result.failure(
+                IllegalStateException("No client is available to sync.")
+            )
 
-                    SyncService.NEXTCLOUD -> {
-                        val settings = LocalPersistence.loadNextcloudSettings(context)
-                        NextcloudSyncManager.syncCurrentWindow(context, settings)
+            if (SyncService.GOOGLE_DRIVE in available) {
+                val account = GoogleSignIn.getLastSignedInAccount(context)
+                if (account != null) {
+                    GoogleDriveSyncManager.initialize(appContext)
+                    val driveResult = GoogleDriveSyncManager.syncCurrentWindow(
+                        context = appContext,
+                        store = store,
+                        client = client,
+                        account = account
+                    )
+                    if (driveResult.isFailure) {
+                        return@withContext Result.failure(
+                            driveResult.exceptionOrNull()
+                                ?: IllegalStateException("Google Drive sync failed.")
+                        )
                     }
+                }
+            }
+
+            if (SyncService.NEXTCLOUD in available) {
+                val settings = NextcloudSettings(
+                    serverUrl = client.nextcloudUrl,
+                    username = client.nextcloudUser,
+                    appPassword = client.nextcloudPassword,
+                    remoteFolder = client.nextcloudFolder.ifBlank { "TimeKeeper" }
+                )
+                val nextcloudResult = NextcloudSyncManager.syncCurrentWindow(
+                    context = appContext,
+                    store = store,
+                    clientProfile = client,
+                    settings = settings
+                )
+                if (nextcloudResult.isFailure) {
+                    return@withContext Result.failure(
+                        nextcloudResult.exceptionOrNull()
+                            ?: IllegalStateException("Nextcloud sync failed.")
+                    )
                 }
             }
 

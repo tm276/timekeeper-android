@@ -1,187 +1,127 @@
 package com.example.timekeeper
-
 import android.content.Context
 import org.json.JSONArray
 import org.json.JSONObject
-
-object LocalPersistence {
-    private const val PREFS_NAME = "timekeeper_prefs"
-    private const val KEY_ENTRIES = "entries"
-    private const val KEY_ACTIVE_START = "active_start"
-    private const val KEY_SETTINGS = "settings"
-    private const val KEY_NEXTCLOUD_SETTINGS = "nextcloud_settings"
-    private const val KEY_DRIVE_MAPPINGS = "drive_mappings"
-    private const val KEY_DRIVE_ACCOUNT_EMAIL = "drive_account_email"
-    private const val KEY_SYNC_SERVICES = "sync_services"
-
-    fun saveEntries(context: Context, entries: List<TimeEntry>) {
-        val array = JSONArray()
-
-        entries.forEach { entry ->
-            val obj = JSONObject().apply {
-                put("id", entry.id)
-                put("startMillis", entry.startMillis)
-                put("stopMillis", entry.stopMillis)
-                put("description", entry.description)
-            }
-            array.put(obj)
-        }
-
-        prefs(context)
-            .edit()
-            .putString(KEY_ENTRIES, array.toString())
-            .apply()
+class LocalPersistence(context: Context) {
+    private val prefs = context.getSharedPreferences("timekeeper_prefs", Context.MODE_PRIVATE)
+    companion object {
+        private const val KEY_SETTINGS = "settings_json"
+        private const val KEY_CLIENTS = "clients_json"
+        private const val KEY_ACTIVE_CLIENT_ID = "active_client_id"
+        private const val KEY_DRIVE_MAPPINGS = "drive_mappings_json"
     }
-
-    fun loadEntries(context: Context): MutableList<TimeEntry> {
-        val raw = prefs(context).getString(KEY_ENTRIES, null) ?: return mutableListOf()
-        val array = JSONArray(raw)
-        val entries = mutableListOf<TimeEntry>()
-
-        for (i in 0 until array.length()) {
-            val obj = array.getJSONObject(i)
-            entries.add(
-                TimeEntry(
-                    id = obj.getString("id"),
-                    startMillis = obj.getLong("startMillis"),
-                    stopMillis = obj.getLong("stopMillis"),
-                    description = obj.getString("description")
-                )
-            )
-        }
-
-        return entries
-    }
-
-    fun saveActiveStart(context: Context, activeStartMillis: Long) {
-        prefs(context)
-            .edit()
-            .putLong(KEY_ACTIVE_START, activeStartMillis)
-            .apply()
-    }
-
-    fun loadActiveStart(context: Context): Long {
-        return prefs(context).getLong(KEY_ACTIVE_START, 0L)
-    }
-
-    fun saveSettings(context: Context, settings: TimeSettings) {
-        val obj = JSONObject().apply {
+    fun saveSettings(settings: TimeSettings) {
+        val json = JSONObject().apply {
             put("anchorMillis", settings.anchorMillis)
             put("durationAmount", settings.durationAmount)
             put("durationUnit", settings.durationUnit.name)
+            put("userName", settings.userName)
         }
-
-        prefs(context)
-            .edit()
-            .putString(KEY_SETTINGS, obj.toString())
-            .apply()
+        prefs.edit().putString(KEY_SETTINGS, json.toString()).apply()
     }
-
-    fun loadSettings(context: Context): TimeSettings {
-        val raw = prefs(context).getString(KEY_SETTINGS, null)
-            ?: return TimeSettings.default()
-
-        val obj = JSONObject(raw)
-
-        return TimeSettings(
-            anchorMillis = obj.getLong("anchorMillis"),
-            durationAmount = obj.getInt("durationAmount"),
-            durationUnit = DurationUnit.valueOf(obj.getString("durationUnit"))
-        )
-    }
-
-    fun saveNextcloudSettings(context: Context, settings: NextcloudSettings) {
-        val obj = JSONObject().apply {
-            put("serverUrl", settings.serverUrl)
-            put("username", settings.username)
-            put("appPassword", settings.appPassword)
-            put("remoteFolder", settings.remoteFolder)
+    fun loadSettings(): TimeSettings {
+        val raw = prefs.getString(KEY_SETTINGS, null) ?: return TimeSettings.default()
+        return try {
+            val json = JSONObject(raw)
+            TimeSettings(
+                anchorMillis = json.optLong("anchorMillis", System.currentTimeMillis()),
+                durationAmount = json.optInt("durationAmount", 7),
+                durationUnit = DurationUnit.valueOf(
+                    json.optString("durationUnit", DurationUnit.DAYS.name)
+                ),
+                userName = json.optString("userName", "")
+            )
+        } catch (_: Exception) {
+            TimeSettings.default()
         }
-
-        prefs(context)
-            .edit()
-            .putString(KEY_NEXTCLOUD_SETTINGS, obj.toString())
-            .apply()
     }
-
-    fun loadNextcloudSettings(context: Context): NextcloudSettings {
-        val raw = prefs(context).getString(KEY_NEXTCLOUD_SETTINGS, null)
-            ?: return NextcloudSettings.default()
-
-        val obj = JSONObject(raw)
-
-        return NextcloudSettings(
-            serverUrl = obj.getString("serverUrl"),
-            username = obj.getString("username"),
-            appPassword = obj.getString("appPassword"),
-            remoteFolder = obj.getString("remoteFolder")
-        )
+    fun saveClients(clients: List<ClientProfile>) {
+        val array = JSONArray()
+        clients.forEach { client ->
+            val json = JSONObject().apply {
+                put("id", client.id)
+                put("clientName", client.clientName)
+                put("userName", client.userName)
+                put("csvFileName", client.csvFileName)
+                put("localFolder", client.localFolder)
+                put("googleDriveAccount", client.googleDriveAccount)
+                put("googleDriveFolder", client.googleDriveFolder)
+                put("nextcloudUrl", client.nextcloudUrl)
+                put("nextcloudUser", client.nextcloudUser)
+                put("nextcloudPassword", client.nextcloudPassword)
+                put("nextcloudFolder", client.nextcloudFolder)
+            }
+            array.put(json)
+        }
+        prefs.edit().putString(KEY_CLIENTS, array.toString()).apply()
     }
-
-    fun saveDriveMappings(context: Context, mappings: List<DriveFileMapping>) {
+    fun loadClients(): List<ClientProfile> {
+        val raw = prefs.getString(KEY_CLIENTS, null)
+        if (raw.isNullOrBlank()) return emptyList()
+        return try {
+            val array = JSONArray(raw)
+            buildList {
+                for (i in 0 until array.length()) {
+                    val json = array.getJSONObject(i)
+                    add(
+                        ClientProfile(
+                            id = json.optString("id", ""),
+                            clientName = json.optString("clientName", "Client"),
+                            userName = json.optString("userName", ""),
+                            csvFileName = json.optString("csvFileName", "time_log.csv"),
+                            localFolder = json.optString("localFolder", ""),
+                            googleDriveAccount = json.optString("googleDriveAccount", ""),
+                            googleDriveFolder = json.optString("googleDriveFolder", ""),
+                            nextcloudUrl = json.optString("nextcloudUrl", ""),
+                            nextcloudUser = json.optString("nextcloudUser", ""),
+                            nextcloudPassword = json.optString("nextcloudPassword", ""),
+                            nextcloudFolder = json.optString("nextcloudFolder", "")
+                        )
+                    )
+                }
+            }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+    fun saveDriveMappings(mappings: List<DriveFileMapping>) {
         val array = JSONArray()
         mappings.forEach { mapping ->
-            val obj = JSONObject().apply {
+            val json = JSONObject().apply {
                 put("windowKey", mapping.windowKey)
                 put("driveFileId", mapping.driveFileId)
             }
-            array.put(obj)
+            array.put(json)
         }
-
-        prefs(context)
-            .edit()
-            .putString(KEY_DRIVE_MAPPINGS, array.toString())
-            .apply()
+        prefs.edit().putString(KEY_DRIVE_MAPPINGS, array.toString()).apply()
     }
-
-    fun loadDriveMappings(context: Context): MutableList<DriveFileMapping> {
-        val raw = prefs(context).getString(KEY_DRIVE_MAPPINGS, null) ?: return mutableListOf()
-        val array = JSONArray(raw)
-        val mappings = mutableListOf<DriveFileMapping>()
-
-        for (i in 0 until array.length()) {
-            val obj = array.getJSONObject(i)
-            mappings.add(
-                DriveFileMapping(
-                    windowKey = obj.getString("windowKey"),
-                    driveFileId = obj.getString("driveFileId")
-                )
-            )
-        }
-
-        return mappings
-    }
-
-    fun saveDriveAccountEmail(context: Context, email: String?) {
-        prefs(context)
-            .edit()
-            .putString(KEY_DRIVE_ACCOUNT_EMAIL, email)
-            .apply()
-    }
-
-    fun loadDriveAccountEmail(context: Context): String? {
-        return prefs(context).getString(KEY_DRIVE_ACCOUNT_EMAIL, null)
-    }
-
-    fun saveSelectedSyncServices(context: Context, services: Set<SyncService>) {
-        val names = services.map { it.name }.toSet()
-        prefs(context)
-            .edit()
-            .putStringSet(KEY_SYNC_SERVICES, names)
-            .apply()
-    }
-
-    fun loadSelectedSyncServices(context: Context): Set<SyncService> {
-        val names = prefs(context).getStringSet(KEY_SYNC_SERVICES, emptySet()) ?: emptySet()
-        return names.mapNotNull {
-            try {
-                SyncService.valueOf(it)
-            } catch (_: Exception) {
-                null
+    fun loadDriveMappings(): List<DriveFileMapping> {
+        val raw = prefs.getString(KEY_DRIVE_MAPPINGS, null)
+        if (raw.isNullOrBlank()) return emptyList()
+        return try {
+            val array = JSONArray(raw)
+            buildList {
+                for (i in 0 until array.length()) {
+                    val json = array.getJSONObject(i)
+                    add(
+                        DriveFileMapping(
+                            windowKey = json.optString("windowKey", ""),
+                            driveFileId = json.optString("driveFileId", "")
+                        )
+                    )
+                }
             }
-        }.toSet()
+        } catch (_: Exception) {
+            emptyList()
+        }
     }
-
-    private fun prefs(context: Context) =
-        context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+    fun saveActiveClientId(clientId: String?) {
+        prefs.edit().putString(KEY_ACTIVE_CLIENT_ID, clientId).apply()
+    }
+    fun loadActiveClientId(): String? {
+        return prefs.getString(KEY_ACTIVE_CLIENT_ID, null)
+    }
+    fun clearActiveClientId() {
+        prefs.edit().remove(KEY_ACTIVE_CLIENT_ID).apply()
+    }
 }

@@ -12,41 +12,47 @@ object CsvWindowManager {
 
     fun getCurrentWindowFile(
         context: Context,
+        client: ClientProfile,
         settings: TimeSettings,
         nowMillis: Long
     ): File {
         val window = calculateWindow(settings, nowMillis)
-        val fileName = "timelog_${window.startDate}_to_${window.endDate}.csv"
+        val safeClientName = sanitizeFileName(client.clientName)
+        val fileName = "timelog_${safeClientName}_${window.startDate}_to_${window.endDate}.csv"
         return File(context.filesDir, fileName)
     }
 
     fun writeCurrentWindowCsv(
         context: Context,
+        client: ClientProfile,
         settings: TimeSettings,
         entries: List<TimeEntry>,
         nowMillis: Long = System.currentTimeMillis()
     ): File {
         val window = calculateWindow(settings, nowMillis)
-        val file = getCurrentWindowFile(context, settings, nowMillis)
+        val file = getCurrentWindowFile(context, client, settings, nowMillis)
 
         val filteredEntries = entries.filter { entry ->
-            entry.stopMillis in window.startMillis until window.endExclusiveMillis
+            entry.clientId == client.id &&
+                    entry.stopMillis in window.startMillis until window.endExclusiveMillis
         }
 
         val lines = mutableListOf<String>()
-        lines.add("date,startTime,stopTime,durationMinutes,description")
+        lines.add("name,client,date,startTime,stopTime,durationMinutes,description")
 
         filteredEntries.forEach { entry ->
-            val date = TimeFormatUtils.formatDate(entry.startMillis)
-            val start = TimeFormatUtils.formatTime(entry.startMillis)
-            val stop = TimeFormatUtils.formatTime(entry.stopMillis)
+            val date = csvEscape(TimeFormatUtils.formatDate(entry.startMillis))
+            val start = csvEscape(TimeFormatUtils.formatTime(entry.startMillis))
+            val stop = csvEscape(TimeFormatUtils.formatTime(entry.stopMillis))
             val duration = TimeFormatUtils.formatDurationMinutes(
                 startMillis = entry.startMillis,
                 stopMillis = entry.stopMillis
             )
+            val name = csvEscape(client.userName.ifBlank { settings.userName })
+            val clientName = csvEscape(client.clientName)
             val description = csvEscape(entry.description)
 
-            lines.add("$date,$start,$stop,$duration,$description")
+            lines.add("$name,$clientName,$date,$start,$stop,$duration,$description")
         }
 
         file.writeText(lines.joinToString("\n"))
@@ -55,37 +61,42 @@ object CsvWindowManager {
 
     fun rewriteAllWindows(
         context: Context,
+        client: ClientProfile,
         settings: TimeSettings,
         entries: List<TimeEntry>
     ) {
-        if (entries.isEmpty()) return
+        val clientEntries = entries.filter { it.clientId == client.id }
+        if (clientEntries.isEmpty()) return
 
-        val grouped = entries.groupBy { entry ->
+        val grouped = clientEntries.groupBy { entry ->
             calculateWindow(settings, entry.stopMillis)
         }
 
         grouped.forEach { (window, windowEntries) ->
+            val safeClientName = sanitizeFileName(client.clientName)
             val file = File(
                 context.filesDir,
-                "timelog_${window.startDate}_to_${window.endDate}.csv"
+                "timelog_${safeClientName}_${window.startDate}_to_${window.endDate}.csv"
             )
 
             val lines = mutableListOf<String>()
-            lines.add("date,startTime,stopTime,durationMinutes,description")
+            lines.add("name,client,date,startTime,stopTime,durationMinutes,description")
 
             windowEntries
                 .sortedBy { it.startMillis }
                 .forEach { entry ->
-                    val date = TimeFormatUtils.formatDate(entry.startMillis)
-                    val start = TimeFormatUtils.formatTime(entry.startMillis)
-                    val stop = TimeFormatUtils.formatTime(entry.stopMillis)
+                    val date = csvEscape(TimeFormatUtils.formatDate(entry.startMillis))
+                    val start = csvEscape(TimeFormatUtils.formatTime(entry.startMillis))
+                    val stop = csvEscape(TimeFormatUtils.formatTime(entry.stopMillis))
                     val duration = TimeFormatUtils.formatDurationMinutes(
                         startMillis = entry.startMillis,
                         stopMillis = entry.stopMillis
                     )
+                    val name = csvEscape(client.userName.ifBlank { settings.userName })
+                    val clientName = csvEscape(client.clientName)
                     val description = csvEscape(entry.description)
 
-                    lines.add("$date,$start,$stop,$duration,$description")
+                    lines.add("$name,$clientName,$date,$start,$stop,$duration,$description")
                 }
 
             file.writeText(lines.joinToString("\n"))
@@ -135,6 +146,13 @@ object CsvWindowManager {
     private fun csvEscape(value: String): String {
         val escaped = value.replace("\"", "\"\"")
         return "\"$escaped\""
+    }
+
+    private fun sanitizeFileName(value: String): String {
+        return value
+            .trim()
+            .replace(Regex("[^A-Za-z0-9._-]"), "_")
+            .ifBlank { "client" }
     }
 }
 

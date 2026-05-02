@@ -7,19 +7,29 @@ import java.io.File
 
 object CsvShareUtils {
 
-    fun shareCurrentCsv(context: Context) {
-        val sourceFile = TimeLogStore.currentCsvFile(context)
-
+    fun shareCurrentCsv(context: Context, store: TimeLogStore, client: ClientProfile) {
+        val sourceFile = CsvWindowManager.getCurrentWindowFile(
+            context = context,
+            client = client,
+            settings = store.settings,
+            nowMillis = System.currentTimeMillis()
+        )
         if (!sourceFile.exists()) {
             CsvWindowManager.writeCurrentWindowCsv(
                 context = context,
-                settings = TimeLogStore.settings,
-                entries = TimeLogStore.entries,
+                client = client,
+                settings = store.settings,
+                entries = store.getEntriesForClient(client.id),
                 nowMillis = System.currentTimeMillis()
             )
         }
 
-        val fileToShare = TimeLogStore.currentCsvFile(context)
+        val fileToShare = CsvWindowManager.getCurrentWindowFile(
+            context = context,
+            client = client,
+            settings = store.settings,
+            nowMillis = System.currentTimeMillis()
+        )
         shareFile(context, fileToShare)
     }
 

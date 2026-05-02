@@ -74,6 +74,7 @@ dependencies {
 
     // ✅ Add this line for WebDAV support (MKCOL, PUT, etc.)
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation(libs.ads.mobile.sdk)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

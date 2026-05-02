@@ -1,109 +1,158 @@
 package com.example.timekeeper
 
-import com.example.timekeeper.CsvWindowManager
-import com.example.timekeeper.GoogleDriveSyncManager
-import com.example.timekeeper.LocalPersistence
-import com.example.timekeeper.TimeEntry
-import com.example.timekeeper.TimeSettings
-
-
-
-
 import android.content.Context
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableLongStateOf
-import java.io.File
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import java.util.UUID
 
-object TimeLogStore {
-    val entries = mutableListOf<TimeEntry>()
-    var version = mutableIntStateOf(0)
+class TimeLogStore(context: Context) {
 
-    var activeStartMillis = mutableLongStateOf(0L)
+    private val persistence = LocalPersistence(context)
+
+    var settings by mutableStateOf(persistence.loadSettings())
         private set
 
-    var settings: TimeSettings = TimeSettings.default()
+    val clients = mutableStateListOf<ClientProfile>()
+
+    val entries = mutableStateListOf<TimeEntry>()
+
+    var activeClientId by mutableStateOf(persistence.loadActiveClientId())
         private set
 
-    fun initialize(context: Context) {
-        entries.clear()
-        entries.addAll(LocalPersistence.loadEntries(context))
-        activeStartMillis.longValue = LocalPersistence.loadActiveStart(context)
-        settings = LocalPersistence.loadSettings(context)
-        CsvWindowManager.rewriteAllWindows(context, settings, entries)
-        GoogleDriveSyncManager.initialize(context)
-        version.intValue = version.intValue + 1
-    }
+    var activeStartMillis by mutableStateOf<Long?>(null)
+        private set
 
-    fun isRunning(): Boolean {
-        return activeStartMillis.longValue > 0L
-    }
-
-    fun startNow(context: Context, nowMillis: Long) {
-        activeStartMillis.longValue = nowMillis
-        LocalPersistence.saveActiveStart(context, activeStartMillis.longValue)
-        version.intValue = version.intValue + 1
-    }
-
-    fun stopAndSave(context: Context, nowMillis: Long, description: String) {
-        val start = activeStartMillis.longValue
-        if (start <= 0L) return
-
-        entries.add(
-            TimeEntry(
+    init {
+        val loadedClients = persistence.loadClients()
+        if (loadedClients.isEmpty()) {
+            val defaultClient = ClientProfile(
                 id = UUID.randomUUID().toString(),
-                startMillis = start,
-                stopMillis = nowMillis,
-                description = description.trim()
+                clientName = "Default Client",
+                userName = settings.userName
             )
-        )
+            clients.add(defaultClient)
+            persistence.saveClients(clients)
+        } else {
+            clients.addAll(loadedClients)
+        }
 
-        activeStartMillis.longValue = 0L
-        persistAll(context)
+        if (activeClientId != null && clients.none { it.id == activeClientId }) {
+            activeClientId = null
+            persistence.clearActiveClientId()
+        }
     }
 
-    fun stopSaveAndStartNext(context: Context, nowMillis: Long, description: String) {
-        val start = activeStartMillis.longValue
-        if (start <= 0L) return
-
-        entries.add(
-            TimeEntry(
-                id = UUID.randomUUID().toString(),
-                startMillis = start,
-                stopMillis = nowMillis,
-                description = description.trim()
-            )
-        )
-
-        activeStartMillis.longValue = nowMillis
-        persistAll(context)
-    }
-
-    fun removeEntry(context: Context, id: String) {
-        entries.removeAll { it.id == id }
-        persistAll(context)
-    }
-
-    fun updateSettings(context: Context, newSettings: TimeSettings) {
+    fun updateSettings(newSettings: TimeSettings) {
         settings = newSettings
-        LocalPersistence.saveSettings(context, settings)
-        CsvWindowManager.rewriteAllWindows(context, settings, entries)
-        version.intValue = version.intValue + 1
+        persistence.saveSettings(newSettings)
     }
 
-    fun currentCsvFile(context: Context): File {
-        return CsvWindowManager.getCurrentWindowFile(
-            context = context,
-            settings = settings,
-            nowMillis = System.currentTimeMillis()
+    fun addClient(
+        clientName: String,
+        userName: String = settings.userName,
+        csvFileName: String = "time_log.csv",
+        localFolder: String = "",
+        googleDriveAccount: String = "",
+        googleDriveFolder: String = "",
+        nextcloudUrl: String = "",
+        nextcloudUser: String = "",
+        nextcloudPassword: String = "",
+        nextcloudFolder: String = ""
+    ) {
+        val client = ClientProfile(
+            id = UUID.randomUUID().toString(),
+            clientName = clientName,
+            userName = userName,
+            csvFileName = csvFileName,
+            localFolder = localFolder,
+            googleDriveAccount = googleDriveAccount,
+            googleDriveFolder = googleDriveFolder,
+            nextcloudUrl = nextcloudUrl,
+            nextcloudUser = nextcloudUser,
+            nextcloudPassword = nextcloudPassword,
+            nextcloudFolder = nextcloudFolder
         )
+        clients.add(client)
+        persistence.saveClients(clients)
     }
 
-    private fun persistAll(context: Context) {
-        LocalPersistence.saveEntries(context, entries)
-        LocalPersistence.saveActiveStart(context, activeStartMillis.longValue)
-        CsvWindowManager.rewriteAllWindows(context, settings, entries)
-        version.intValue = version.intValue + 1
+    fun updateClient(updatedClient: ClientProfile) {
+        val index = clients.indexOfFirst { it.id == updatedClient.id }
+        if (index >= 0) {
+            clients[index] = updatedClient
+            persistence.saveClients(clients)
+        }
+    }
+
+    fun deleteClient(clientId: String) {
+        val wasActive = activeClientId == clientId
+
+        if (wasActive) {
+            cancelActiveTimer()
+        }
+
+        clients.removeAll { it.id == clientId }
+        persistence.saveClients(clients)
+
+        if (clients.isEmpty()) {
+            val fallback = ClientProfile(
+                id = UUID.randomUUID().toString(),
+                clientName = "Default Client",
+                userName = settings.userName
+            )
+            clients.add(fallback)
+            persistence.saveClients(clients)
+        }
+    }
+
+    fun getClientById(clientId: String?): ClientProfile? {
+        return clients.firstOrNull { it.id == clientId }
+    }
+
+    fun startTimer(clientId: String) {
+        activeClientId = clientId
+        activeStartMillis = System.currentTimeMillis()
+        persistence.saveActiveClientId(clientId)
+    }
+
+    fun stopTimer(description: String) {
+        val clientId = activeClientId ?: return
+        val startMillis = activeStartMillis ?: return
+        val stopMillis = System.currentTimeMillis()
+        val durationMinutes = ((stopMillis - startMillis) / 60000L).coerceAtLeast(1L)
+
+        entries.add(
+            TimeEntry(
+                clientId = clientId,
+                startMillis = startMillis,
+                stopMillis = stopMillis,
+                description = description,
+                durationMinutes = durationMinutes
+            )
+        )
+
+        activeClientId = null
+        activeStartMillis = null
+        persistence.clearActiveClientId()
+    }
+
+    fun cancelActiveTimer() {
+        activeClientId = null
+        activeStartMillis = null
+        persistence.clearActiveClientId()
+    }
+
+    fun getEntriesForClient(clientId: String): List<TimeEntry> {
+        return entries.filter { it.clientId == clientId }
+    }
+
+    fun isClientActive(clientId: String): Boolean {
+        return activeClientId == clientId
+    }
+
+    fun getActiveClient(): ClientProfile? {
+        return getClientById(activeClientId)
     }
 }
-

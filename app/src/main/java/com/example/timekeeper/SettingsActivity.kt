@@ -13,10 +13,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -50,35 +48,74 @@ import com.google.api.services.drive.DriveScopes
 import kotlinx.coroutines.launch
 
 class SettingsActivity : ComponentActivity() {
+
+    companion object {
+        const val EXTRA_CLIENT_ID = "client_id"
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        val clientId = intent.getStringExtra(EXTRA_CLIENT_ID)
 
         setContent {
             Surface(
                 modifier = Modifier.fillMaxSize(),
                 color = Color(0xFF121212)
             ) {
-                SettingsScreen(onBack = { finish() })
+                SettingsScreen(
+                    clientId = clientId,
+                    onBack = { finish() }
+                )
             }
         }
     }
 }
 
 @Composable
-fun SettingsScreen(onBack: () -> Unit) {
+fun SettingsScreen(
+    clientId: String?,
+    onBack: () -> Unit
+) {
     val context = LocalContext.current
+    val appContext = context.applicationContext
     val coroutineScope = rememberCoroutineScope()
-    val currentSettings = TimeLogStore.settings
-    val currentNextcloud = LocalPersistence.loadNextcloudSettings(context)
+    val store = remember { TimeLogStore(appContext) }
 
-    var duration by remember { mutableStateOf(currentSettings.durationAmount.toString()) }
+    val currentSettings = store.settings
+    val currentClient = remember(store.clients, store.activeClientId, clientId) {
+        getSettingsClient(store, clientId)
+    }
+    val currentNextcloud = currentClient?.let {
+        NextcloudSettings(
+            serverUrl = it.nextcloudUrl,
+            username = it.nextcloudUser,
+            appPassword = it.nextcloudPassword,
+            remoteFolder = it.nextcloudFolder.ifBlank { "TimeKeeper" }
+        )
+    } ?: NextcloudSettings.default()
+
+    var duration by remember(currentSettings.durationAmount) {
+        mutableStateOf(currentSettings.durationAmount.toString())
+    }
     var durationError by remember { mutableStateOf("") }
+    var userName by remember(currentSettings.userName) {
+        mutableStateOf(currentSettings.userName)
+    }
 
-    var serverUrl by remember { mutableStateOf(currentNextcloud.serverUrl) }
-    var username by remember { mutableStateOf(currentNextcloud.username) }
-    var appPassword by remember { mutableStateOf(currentNextcloud.appPassword) }
-    var remoteFolder by remember { mutableStateOf(currentNextcloud.remoteFolder) }
+    var serverUrl by remember(currentClient?.id, currentNextcloud.serverUrl) {
+        mutableStateOf(currentNextcloud.serverUrl)
+    }
+    var username by remember(currentClient?.id, currentNextcloud.username) {
+        mutableStateOf(currentNextcloud.username)
+    }
+    var appPassword by remember(currentClient?.id, currentNextcloud.appPassword) {
+        mutableStateOf(currentNextcloud.appPassword)
+    }
+    var remoteFolder by remember(currentClient?.id, currentNextcloud.remoteFolder) {
+        mutableStateOf(currentNextcloud.remoteFolder)
+    }
 
     var nextcloudMessage by remember { mutableStateOf("") }
     var driveMessage by remember { mutableStateOf("") }
@@ -94,7 +131,16 @@ fun SettingsScreen(onBack: () -> Unit) {
         try {
             val account = task.result
             driveAccount = account
-            LocalPersistence.saveDriveAccountEmail(context, account.email)
+
+            val sharedEmail = account.email.orEmpty()
+            store.clients.forEach { existingClient ->
+                store.updateClient(
+                    existingClient.copy(
+                        googleDriveAccount = sharedEmail
+                    )
+                )
+            }
+
             driveMessage = "Google Drive connected${account.email?.let { " as $it" } ?: "."}"
         } catch (e: Exception) {
             driveMessage = "Google Drive sign-in failed: ${e.message ?: "Unknown error"}"
@@ -105,7 +151,7 @@ fun SettingsScreen(onBack: () -> Unit) {
         serverUrl = serverUrl.trim(),
         username = username.trim(),
         appPassword = appPassword,
-        remoteFolder = remoteFolder.trim()
+        remoteFolder = remoteFolder.trim().ifBlank { "TimeKeeper" }
     )
 
     Column(
@@ -138,6 +184,15 @@ fun SettingsScreen(onBack: () -> Unit) {
                 Text("CSV Window", color = Color.White, fontWeight = FontWeight.Bold)
 
                 OutlinedTextField(
+                    value = userName,
+                    onValueChange = { userName = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Your Name") },
+                    singleLine = true,
+                    colors = textFieldColors()
+                )
+
+                OutlinedTextField(
                     value = duration,
                     onValueChange = {
                         duration = it
@@ -167,19 +222,19 @@ fun SettingsScreen(onBack: () -> Unit) {
                             return@Button
                         }
 
-                        TimeLogStore.updateSettings(
-                            context = context,
-                            newSettings = currentSettings.copy(
+                        store.updateSettings(
+                            currentSettings.copy(
                                 durationAmount = parsed,
-                                durationUnit = DurationUnit.DAYS
+                                durationUnit = DurationUnit.DAYS,
+                                userName = userName.trim()
                             )
                         )
-                        nextcloudMessage = "Duration saved."
+                        nextcloudMessage = "CSV settings saved."
                     },
                     modifier = Modifier.fillMaxWidth(),
                     colors = primaryButtonColors()
                 ) {
-                    Text("Save Duration")
+                    Text("Save CSV Settings")
                 }
             }
         }
@@ -218,7 +273,9 @@ fun SettingsScreen(onBack: () -> Unit) {
             ) {
                 Text("Google Drive", color = Color.White, fontWeight = FontWeight.Bold)
                 Text(
-                    text = driveAccount?.email?.let { "Connected as $it" } ?: "Not connected",
+                    text = driveAccount?.email?.let { "Connected as $it" }
+                        ?: currentClient?.googleDriveAccount?.takeIf { it.isNotBlank() }?.let { "Connected as $it" }
+                        ?: "Not connected",
                     color = Color(0xFFCFD8DC)
                 )
 
@@ -236,12 +293,21 @@ fun SettingsScreen(onBack: () -> Unit) {
                 Button(
                     onClick = {
                         val account = driveAccount
+                        val client = getSettingsClient(store, clientId)
                         if (account == null) {
                             driveMessage = "Connect Google Drive first."
+                        } else if (client == null) {
+                            driveMessage = "No client available to sync."
                         } else {
                             coroutineScope.launch {
                                 driveMessage = "Google Drive sync started..."
-                                val result = GoogleDriveSyncManager.syncCurrentWindow(context, account)
+                                GoogleDriveSyncManager.initialize(appContext)
+                                val result = GoogleDriveSyncManager.syncCurrentWindow(
+                                    context = appContext,
+                                    store = store,
+                                    client = client,
+                                    account = account
+                                )
                                 driveMessage = if (result.isSuccess) {
                                     "Google Drive sync complete."
                                 } else {
@@ -260,7 +326,11 @@ fun SettingsScreen(onBack: () -> Unit) {
                     onClick = {
                         val signInClient = GoogleSignIn.getClient(context, googleSignInOptions())
                         signInClient.signOut().addOnCompleteListener {
-                            LocalPersistence.saveDriveAccountEmail(context, null)
+                            store.clients.forEach { existingClient ->
+                                store.updateClient(
+                                    existingClient.copy(googleDriveAccount = "")
+                                )
+                            }
                             driveAccount = null
                             driveMessage = "Google Drive disconnected."
                         }
@@ -323,13 +393,29 @@ fun SettingsScreen(onBack: () -> Unit) {
                                 serverUrl = login.server
                                 username = login.loginName
                                 appPassword = login.appPassword
-                                val newSettings = NextcloudSettings(
-                                    serverUrl = login.server,
-                                    username = login.loginName,
-                                    appPassword = login.appPassword,
-                                    remoteFolder = remoteFolder.trim().ifBlank { "TimeKeeper" }
-                                )
-                                LocalPersistence.saveNextcloudSettings(context, newSettings)
+                                remoteFolder = remoteFolder.trim().ifBlank { "TimeKeeper" }
+
+                                store.clients.forEach { existingClient ->
+                                    store.updateClient(
+                                        existingClient.copy(
+                                            nextcloudUrl = login.server,
+                                            nextcloudUser = login.loginName,
+                                            nextcloudPassword = login.appPassword
+                                        )
+                                    )
+                                }
+
+                                val current = getSettingsClient(store, clientId)
+                                if (current != null) {
+                                    store.updateClient(
+                                        current.copy(
+                                            nextcloudUrl = login.server,
+                                            nextcloudUser = login.loginName,
+                                            nextcloudPassword = login.appPassword,
+                                            nextcloudFolder = remoteFolder.trim().ifBlank { "TimeKeeper" }
+                                        )
+                                    )
+                                }
                                 nextcloudMessage = "Nextcloud connected and app password saved."
                             }
                         }
@@ -411,8 +497,30 @@ fun SettingsScreen(onBack: () -> Unit) {
 
                                 Button(
                                     onClick = {
-                                        LocalPersistence.saveNextcloudSettings(context, savedNextcloudSettings)
-                                        nextcloudMessage = "Nextcloud settings saved."
+                                        val client = getSettingsClient(store, clientId)
+                                        if (client == null) {
+                                            nextcloudMessage = "No client available to save."
+                                        } else {
+                                            store.clients.forEach { existingClient ->
+                                                store.updateClient(
+                                                    existingClient.copy(
+                                                        nextcloudUrl = savedNextcloudSettings.serverUrl,
+                                                        nextcloudUser = savedNextcloudSettings.username,
+                                                        nextcloudPassword = savedNextcloudSettings.appPassword
+                                                    )
+                                                )
+                                            }
+
+                                            store.updateClient(
+                                                client.copy(
+                                                    nextcloudUrl = savedNextcloudSettings.serverUrl,
+                                                    nextcloudUser = savedNextcloudSettings.username,
+                                                    nextcloudPassword = savedNextcloudSettings.appPassword,
+                                                    nextcloudFolder = savedNextcloudSettings.remoteFolder
+                                                )
+                                            )
+                                            nextcloudMessage = "Nextcloud settings saved."
+                                        }
                                     },
                                     modifier = Modifier.fillMaxWidth(),
                                     colors = primaryButtonColors()
@@ -426,14 +534,36 @@ fun SettingsScreen(onBack: () -> Unit) {
 
                 Button(
                     onClick = {
-                        LocalPersistence.saveNextcloudSettings(context, savedNextcloudSettings)
-                        coroutineScope.launch {
-                            nextcloudMessage = "Nextcloud sync started..."
-                            val result = NextcloudSyncManager.syncCurrentWindow(context, savedNextcloudSettings)
-                            nextcloudMessage = if (result.isSuccess) {
-                                "Nextcloud sync complete."
-                            } else {
-                                "Nextcloud sync failed: ${result.exceptionOrNull()?.message ?: "Unknown error"}"
+                        val client = getSettingsClient(store, clientId)
+                        if (client == null) {
+                            nextcloudMessage = "No client available to sync."
+                        } else {
+                            store.updateClient(
+                                client.copy(
+                                    nextcloudUrl = savedNextcloudSettings.serverUrl,
+                                    nextcloudUser = savedNextcloudSettings.username,
+                                    nextcloudPassword = savedNextcloudSettings.appPassword,
+                                    nextcloudFolder = savedNextcloudSettings.remoteFolder
+                                )
+                            )
+                            coroutineScope.launch {
+                                nextcloudMessage = "Nextcloud sync started..."
+                                val result = NextcloudSyncManager.syncCurrentWindow(
+                                    context = appContext,
+                                    store = store,
+                                    clientProfile = client.copy(
+                                        nextcloudUrl = savedNextcloudSettings.serverUrl,
+                                        nextcloudUser = savedNextcloudSettings.username,
+                                        nextcloudPassword = savedNextcloudSettings.appPassword,
+                                        nextcloudFolder = savedNextcloudSettings.remoteFolder
+                                    ),
+                                    settings = savedNextcloudSettings
+                                )
+                                nextcloudMessage = if (result.isSuccess) {
+                                    "Nextcloud sync complete."
+                                } else {
+                                    "Nextcloud sync failed: ${result.exceptionOrNull()?.message ?: "Unknown error"}"
+                                }
                             }
                         }
                     },
@@ -461,6 +591,12 @@ fun SettingsScreen(onBack: () -> Unit) {
     LaunchedEffect(Unit) {
         driveAccount = findConnectedDriveAccount(context)
     }
+}
+
+private fun getSettingsClient(store: TimeLogStore, clientId: String?): ClientProfile? {
+    return store.getClientById(clientId)
+        ?: store.getActiveClient()
+        ?: store.clients.firstOrNull()
 }
 
 private fun findConnectedDriveAccount(context: android.content.Context): GoogleSignInAccount? {
