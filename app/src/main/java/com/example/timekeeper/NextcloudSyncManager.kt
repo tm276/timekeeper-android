@@ -27,21 +27,13 @@ object NextcloudSyncManager {
                     IllegalArgumentException("Nextcloud settings are incomplete.")
                 )
             }
-            val currentFile = CsvWindowManager.getCurrentWindowFile(
+            val currentFile = CsvWindowManager.writeCurrentWindowCsv(
                 context = context,
                 client = clientProfile,
                 settings = store.settings,
+                entries = store.getEntriesForClient(clientProfile.id),
                 nowMillis = System.currentTimeMillis()
             )
-            if (!currentFile.exists()) {
-                CsvWindowManager.writeCurrentWindowCsv(
-                    context = context,
-                    client = clientProfile,
-                    settings = store.settings,
-                    entries = store.getEntriesForClient(clientProfile.id),
-                    nowMillis = System.currentTimeMillis()
-                )
-            }
             val encodedUsername = encodeDavSegment(settings.username)
             val trimmedServer = settings.serverUrl.trimEnd('/')
             val trimmedFolder =

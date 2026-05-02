@@ -79,7 +79,12 @@ private fun MainScreen() {
         modifier = Modifier
             .fillMaxSize()
             .background(MainAppBackground)
-            .padding(12.dp),
+            .padding(
+                top = 48.dp,
+                start = 12.dp,
+                end = 12.dp,
+                bottom = 12.dp
+            ),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text(

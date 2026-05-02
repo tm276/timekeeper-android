@@ -8,18 +8,22 @@ import kotlinx.coroutines.withContext
 object SyncOrchestrator {
 
     suspend fun sync(context: Context): Result<Unit> = withContext(Dispatchers.IO) {
+        val appContext = context.applicationContext
+        val store = TimeLogStore(appContext)
+
         try {
             val available = getAvailableSyncServices(context)
             if (available.isEmpty()) {
+                store.markSyncSuccess()
                 return@withContext Result.success(Unit)
             }
 
-            val appContext = context.applicationContext
-            val store = TimeLogStore(appContext)
             val client = store.getActiveClient() ?: store.clients.firstOrNull()
-            ?: return@withContext Result.failure(
-                IllegalStateException("No client is available to sync.")
-            )
+            ?: run {
+                val error = IllegalStateException("No client is available to sync.")
+                store.markSyncFailed()
+                return@withContext Result.failure(error)
+            }
 
             if (SyncService.GOOGLE_DRIVE in available) {
                 val account = GoogleSignIn.getLastSignedInAccount(context)
@@ -32,6 +36,7 @@ object SyncOrchestrator {
                         account = account
                     )
                     if (driveResult.isFailure) {
+                        store.markSyncFailed()
                         return@withContext Result.failure(
                             driveResult.exceptionOrNull()
                                 ?: IllegalStateException("Google Drive sync failed.")
@@ -54,6 +59,7 @@ object SyncOrchestrator {
                     settings = settings
                 )
                 if (nextcloudResult.isFailure) {
+                    store.markSyncFailed()
                     return@withContext Result.failure(
                         nextcloudResult.exceptionOrNull()
                             ?: IllegalStateException("Nextcloud sync failed.")
@@ -61,8 +67,10 @@ object SyncOrchestrator {
                 }
             }
 
+            store.markSyncSuccess()
             Result.success(Unit)
         } catch (e: Exception) {
+            store.markSyncFailed()
             Result.failure(e)
         }
     }

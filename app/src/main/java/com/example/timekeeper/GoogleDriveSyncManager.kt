@@ -32,27 +32,11 @@ object GoogleDriveSyncManager {
         account: GoogleSignInAccount
     ): Result<String> = withContext(Dispatchers.IO) {
         try {
-            val csvFile = CsvWindowManager.getCurrentWindowFile(
+            val currentFile: JavaFile = CsvWindowManager.writeCurrentWindowCsv(
                 context = context,
                 client = client,
                 settings = store.settings,
-                nowMillis = System.currentTimeMillis()
-            )
-
-            if (!csvFile.exists()) {
-                CsvWindowManager.writeCurrentWindowCsv(
-                    context = context,
-                    client = client,
-                    settings = store.settings,
-                    entries = store.getEntriesForClient(client.id),
-                    nowMillis = System.currentTimeMillis()
-                )
-            }
-
-            val currentFile: JavaFile = CsvWindowManager.getCurrentWindowFile(
-                context = context,
-                client = client,
-                settings = store.settings,
+                entries = store.getEntriesForClient(client.id),
                 nowMillis = System.currentTimeMillis()
             )
 

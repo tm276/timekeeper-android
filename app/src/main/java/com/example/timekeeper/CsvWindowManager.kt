@@ -1,9 +1,10 @@
 package com.example.timekeeper
 
 import android.content.Context
-import com.example.timelogger.TimeFormatUtils
 import java.io.File
+import java.time.DayOfWeek
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 import java.time.temporal.ChronoUnit
 import kotlin.math.max
@@ -40,20 +41,22 @@ object CsvWindowManager {
         val lines = mutableListOf<String>()
         lines.add("name,client,date,startTime,stopTime,durationMinutes,description")
 
-        filteredEntries.forEach { entry ->
-            val date = csvEscape(TimeFormatUtils.formatDate(entry.startMillis))
-            val start = csvEscape(TimeFormatUtils.formatTime(entry.startMillis))
-            val stop = csvEscape(TimeFormatUtils.formatTime(entry.stopMillis))
-            val duration = TimeFormatUtils.formatDurationMinutes(
-                startMillis = entry.startMillis,
-                stopMillis = entry.stopMillis
-            )
-            val name = csvEscape(client.userName.ifBlank { settings.userName })
-            val clientName = csvEscape(client.clientName)
-            val description = csvEscape(entry.description)
+        filteredEntries
+            .sortedBy { it.startMillis }
+            .forEach { entry ->
+                val date = csvEscape(TimeFormatUtils.formatDate(entry.startMillis))
+                val start = csvEscape(TimeFormatUtils.formatTime(entry.startMillis))
+                val stop = csvEscape(TimeFormatUtils.formatTime(entry.stopMillis))
+                val duration = TimeFormatUtils.formatDurationMinutes(
+                    startMillis = entry.startMillis,
+                    stopMillis = entry.stopMillis
+                )
+                val name = csvEscape(client.userName.ifBlank { settings.userName })
+                val clientName = csvEscape(client.clientName)
+                val description = csvEscape(entry.description)
 
-            lines.add("$name,$clientName,$date,$start,$stop,$duration,$description")
-        }
+                lines.add("$name,$clientName,$date,$start,$stop,$duration,$description")
+            }
 
         file.writeText(lines.joinToString("\n"))
         return file
@@ -67,6 +70,8 @@ object CsvWindowManager {
     ) {
         val clientEntries = entries.filter { it.clientId == client.id }
         if (clientEntries.isEmpty()) return
+
+        deleteExistingWindowFiles(context, client)
 
         val grouped = clientEntries.groupBy { entry ->
             calculateWindow(settings, entry.stopMillis)
@@ -108,18 +113,14 @@ object CsvWindowManager {
         targetMillis: Long
     ): CsvWindow {
         val zone = ZoneId.systemDefault()
-
-        val anchorDateTime = Instant.ofEpochMilli(settings.anchorMillis).atZone(zone)
-        val targetDateTime = Instant.ofEpochMilli(targetMillis).atZone(zone)
+        val targetDate = Instant.ofEpochMilli(targetMillis).atZone(zone).toLocalDate()
 
         val unitDays = when (settings.durationUnit) {
             DurationUnit.DAYS -> max(1, settings.durationAmount)
             DurationUnit.WEEKS -> max(1, settings.durationAmount) * 7
         }
 
-        val anchorDate = anchorDateTime.toLocalDate()
-        val targetDate = targetDateTime.toLocalDate()
-
+        val anchorDate = alignedAnchorDate(settings, zone)
         val daysBetween = ChronoUnit.DAYS.between(anchorDate, targetDate)
 
         val windowIndex = if (daysBetween >= 0) {
@@ -141,6 +142,51 @@ object CsvWindowManager {
             startDate = windowStartDate.toString(),
             endDate = windowEndDisplayDate.toString()
         )
+    }
+
+    private fun alignedAnchorDate(settings: TimeSettings, zone: ZoneId): LocalDate {
+        val rawAnchorDate = Instant.ofEpochMilli(settings.anchorMillis).atZone(zone).toLocalDate()
+
+        return when (settings.durationUnit) {
+            DurationUnit.DAYS -> rawAnchorDate
+            DurationUnit.WEEKS -> {
+                val weekEnd = settings.weekEndDay.toJavaDayOfWeek()
+                val weekStart = weekEnd.plus(1)
+                moveToPreviousOrSame(rawAnchorDate, weekStart)
+            }
+        }
+    }
+
+    private fun moveToPreviousOrSame(date: LocalDate, targetDay: DayOfWeek): LocalDate {
+        var current = date
+        while (current.dayOfWeek != targetDay) {
+            current = current.minusDays(1)
+        }
+        return current
+    }
+
+    private fun WeekEndDay.toJavaDayOfWeek(): DayOfWeek {
+        return when (this) {
+            WeekEndDay.SUNDAY -> DayOfWeek.SUNDAY
+            WeekEndDay.MONDAY -> DayOfWeek.MONDAY
+            WeekEndDay.TUESDAY -> DayOfWeek.TUESDAY
+            WeekEndDay.WEDNESDAY -> DayOfWeek.WEDNESDAY
+            WeekEndDay.THURSDAY -> DayOfWeek.THURSDAY
+            WeekEndDay.FRIDAY -> DayOfWeek.FRIDAY
+            WeekEndDay.SATURDAY -> DayOfWeek.SATURDAY
+        }
+    }
+
+    private fun deleteExistingWindowFiles(context: Context, client: ClientProfile) {
+        val safeClientName = sanitizeFileName(client.clientName)
+        context.filesDir
+            .listFiles()
+            ?.filter { file ->
+                file.isFile &&
+                        file.name.startsWith("timelog_${safeClientName}_") &&
+                        file.name.endsWith(".csv")
+            }
+            ?.forEach { it.delete() }
     }
 
     private fun csvEscape(value: String): String {

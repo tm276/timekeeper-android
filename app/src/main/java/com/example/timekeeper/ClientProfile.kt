@@ -17,5 +17,10 @@ data class ClientProfile(
     val nextcloudUrl: String = "",
     val nextcloudUser: String = "",
     val nextcloudPassword: String = "",
-    val nextcloudFolder: String = ""
+    val nextcloudFolder: String = "",
+
+    // 🔧 NEW: Auto sync settings
+    val autoSyncEnabled: Boolean = false,
+    val syncGoogleDriveEnabled: Boolean = false,
+    val syncNextcloudEnabled: Boolean = false
 )
