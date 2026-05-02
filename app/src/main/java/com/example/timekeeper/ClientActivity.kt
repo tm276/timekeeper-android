@@ -6,6 +6,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -158,6 +159,11 @@ private fun ClientScreen(
     var description by remember { mutableStateOf("") }
     var dialogMode by remember { mutableStateOf(ClientTimeDialogMode.Stop) }
 
+    var showEditDescriptionDialog by remember { mutableStateOf(false) }
+    var editDescription by remember { mutableStateOf("") }
+    var editStartMillis by remember { mutableStateOf(0L) }
+    var editStopMillis by remember { mutableStateOf(0L) }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -229,6 +235,23 @@ private fun ClientScreen(
                 Text(
                     text = fileName,
                     color = ClientPrimaryText
+                )
+            }
+        }
+
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+            color = ClientPanelBackground
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = formatLastSync(store),
+                    color = if (store.lastSyncFailed) ClientDestructiveAction else ClientPrimaryText,
+                    fontWeight = FontWeight.Bold
                 )
             }
         }
@@ -357,7 +380,14 @@ private fun ClientScreen(
                 } else {
                     entries.take(10).forEach { entry ->
                         Surface(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    editDescription = entry.description
+                                    editStartMillis = entry.startMillis
+                                    editStopMillis = entry.stopMillis
+                                    showEditDescriptionDialog = true
+                                },
                             shape = RoundedCornerShape(16.dp),
                             color = ClientCardBackground
                         ) {
@@ -389,11 +419,6 @@ private fun ClientScreen(
     if (showDescriptionDialog) {
         val title = if (dialogMode == ClientTimeDialogMode.Stop) "Stop Timer" else "Next Task"
         val confirmLabel = if (dialogMode == ClientTimeDialogMode.Stop) "Stop" else "Save and Continue"
-        val fieldLabel = if (dialogMode == ClientTimeDialogMode.Stop) {
-            "What did you work on?"
-        } else {
-            "Task completed"
-        }
 
         AlertDialog(
             onDismissRequest = {
@@ -411,7 +436,7 @@ private fun ClientScreen(
                     value = description,
                     onValueChange = { description = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text(fieldLabel) },
+                    label = { Text("What did you work on") },
                     minLines = 3,
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedContainerColor = ClientPanelBackground,
@@ -462,4 +487,91 @@ private fun ClientScreen(
             }
         )
     }
+
+    if (showEditDescriptionDialog) {
+        AlertDialog(
+            onDismissRequest = {
+                showEditDescriptionDialog = false
+                editDescription = ""
+            },
+            containerColor = ClientPanelBackground,
+            titleContentColor = ClientPrimaryText,
+            textContentColor = ClientSecondaryText,
+            title = {
+                Text("Edit Description")
+            },
+            text = {
+                OutlinedTextField(
+                    value = editDescription,
+                    onValueChange = { editDescription = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("What did you work on") },
+                    minLines = 3,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = ClientPanelBackground,
+                        unfocusedContainerColor = ClientPanelBackground,
+                        focusedBorderColor = ClientPrimaryAction,
+                        unfocusedBorderColor = ClientBorderColor,
+                        focusedTextColor = ClientPrimaryText,
+                        unfocusedTextColor = ClientPrimaryText,
+                        focusedLabelColor = ClientPrimaryAction,
+                        unfocusedLabelColor = ClientSecondaryText,
+                        cursorColor = ClientPrimaryAction
+                    )
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val updated = store.updateEntryDescription(
+                            clientId = client.id,
+                            startMillis = editStartMillis,
+                            stopMillis = editStopMillis,
+                            description = editDescription.trim()
+                        )
+                        if (updated) {
+                            CsvWindowManager.rewriteAllWindows(
+                                context = context.applicationContext,
+                                client = client,
+                                settings = store.settings,
+                                entries = store.getEntriesForClient(client.id)
+                            )
+                        }
+                        editDescription = ""
+                        showEditDescriptionDialog = false
+                        reloadKey += 1
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = ClientPrimaryAction,
+                        contentColor = Color.Black
+                    )
+                ) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                Button(
+                    onClick = {
+                        editDescription = ""
+                        showEditDescriptionDialog = false
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = ClientSecondaryAction,
+                        contentColor = ClientPrimaryText
+                    )
+                ) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+}
+
+private fun formatLastSync(store: TimeLogStore): String {
+    if (store.lastSyncFailed) {
+        return "Sync: failed"
+    }
+
+    val millis = store.lastSyncMillis ?: return "Last Sync: never"
+    return "Last Sync: ${TimeFormatUtils.formatDate(millis)} at ${TimeFormatUtils.formatTime(millis)}"
 }

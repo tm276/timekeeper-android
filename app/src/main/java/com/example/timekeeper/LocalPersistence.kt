@@ -205,4 +205,32 @@ class LocalPersistence(context: Context) {
     fun clearActiveStartMillis() {
         prefs.edit().remove("activeStartMillis").apply()
     }
+
+    // -------------------------
+    // LAST SYNC STATUS
+    // -------------------------
+    fun saveLastSyncSuccess(syncMillis: Long) {
+        prefs.edit()
+            .putLong("lastSyncMillis", syncMillis)
+            .putBoolean("lastSyncFailed", false)
+            .apply()
+    }
+
+    fun saveLastSyncFailure() {
+        prefs.edit()
+            .putBoolean("lastSyncFailed", true)
+            .apply()
+    }
+
+    fun loadLastSyncMillis(): Long? {
+        return if (prefs.contains("lastSyncMillis")) {
+            prefs.getLong("lastSyncMillis", 0L)
+        } else {
+            null
+        }
+    }
+
+    fun loadLastSyncFailed(): Boolean {
+        return prefs.getBoolean("lastSyncFailed", false)
+    }
 }

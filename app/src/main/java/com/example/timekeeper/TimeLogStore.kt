@@ -28,6 +28,12 @@ class TimeLogStore(context: Context) {
     var activeStartMillis by mutableStateOf(persistence.loadActiveStartMillis())
         private set
 
+    var lastSyncMillis by mutableStateOf(persistence.loadLastSyncMillis())
+        private set
+
+    var lastSyncFailed by mutableStateOf(persistence.loadLastSyncFailed())
+        private set
+
     init {
         val loadedClients = persistence.loadClients()
         if (loadedClients.isEmpty()) {
@@ -129,6 +135,24 @@ class TimeLogStore(context: Context) {
         persistence.saveEntries(entries)
     }
 
+    fun updateEntryDescription(
+        clientId: String,
+        startMillis: Long,
+        stopMillis: Long,
+        description: String
+    ): Boolean {
+        val index = entries.indexOfFirst { entry ->
+            entry.clientId == clientId &&
+                    entry.startMillis == startMillis &&
+                    entry.stopMillis == stopMillis
+        }
+        if (index < 0) return false
+
+        entries[index] = entries[index].copy(description = description)
+        persistence.saveEntries(entries)
+        return true
+    }
+
     fun deleteAllLocalFilesForClient(clientId: String): Int {
         val client = getClientById(clientId) ?: return 0
         return deleteAllLocalFilesForClient(client)
@@ -189,6 +213,17 @@ class TimeLogStore(context: Context) {
         activeStartMillis = null
         persistence.clearActiveClientId()
         persistence.clearActiveStartMillis()
+    }
+
+    fun markSyncSuccess(syncMillis: Long = System.currentTimeMillis()) {
+        lastSyncMillis = syncMillis
+        lastSyncFailed = false
+        persistence.saveLastSyncSuccess(syncMillis)
+    }
+
+    fun markSyncFailed() {
+        lastSyncFailed = true
+        persistence.saveLastSyncFailure()
     }
 
     fun getEntriesForClient(clientId: String): List<TimeEntry> {
