@@ -115,7 +115,12 @@ object NextcloudLoginFlowManager {
     }
 
     private fun normalizeServerUrl(serverUrl: String): String {
-        return serverUrl.trim().trimEnd('/')
+        val trimmed = serverUrl.trim().trimEnd('/')
+        return if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+            trimmed
+        } else {
+            "https://$trimmed"
+        }
     }
 
     private fun readResponseBody(connection: HttpURLConnection, code: Int): String {
