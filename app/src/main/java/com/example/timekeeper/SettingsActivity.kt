@@ -132,11 +132,11 @@ fun SettingsScreen(
             val account = task.result
             driveAccount = account
 
-            val client = getSettingsClient(store, clientId)
-            if (client != null) {
+            val sharedEmail = account.email.orEmpty()
+            store.clients.forEach { existingClient ->
                 store.updateClient(
-                    client.copy(
-                        googleDriveAccount = account.email ?: ""
+                    existingClient.copy(
+                        googleDriveAccount = sharedEmail
                     )
                 )
             }
@@ -326,9 +326,10 @@ fun SettingsScreen(
                     onClick = {
                         val signInClient = GoogleSignIn.getClient(context, googleSignInOptions())
                         signInClient.signOut().addOnCompleteListener {
-                            val client = getSettingsClient(store, clientId)
-                            if (client != null) {
-                                store.updateClient(client.copy(googleDriveAccount = ""))
+                            store.clients.forEach { existingClient ->
+                                store.updateClient(
+                                    existingClient.copy(googleDriveAccount = "")
+                                )
                             }
                             driveAccount = null
                             driveMessage = "Google Drive disconnected."
@@ -394,10 +395,20 @@ fun SettingsScreen(
                                 appPassword = login.appPassword
                                 remoteFolder = remoteFolder.trim().ifBlank { "TimeKeeper" }
 
-                                val client = getSettingsClient(store, clientId)
-                                if (client != null) {
+                                store.clients.forEach { existingClient ->
                                     store.updateClient(
-                                        client.copy(
+                                        existingClient.copy(
+                                            nextcloudUrl = login.server,
+                                            nextcloudUser = login.loginName,
+                                            nextcloudPassword = login.appPassword
+                                        )
+                                    )
+                                }
+
+                                val current = getSettingsClient(store, clientId)
+                                if (current != null) {
+                                    store.updateClient(
+                                        current.copy(
                                             nextcloudUrl = login.server,
                                             nextcloudUser = login.loginName,
                                             nextcloudPassword = login.appPassword,
@@ -490,6 +501,16 @@ fun SettingsScreen(
                                         if (client == null) {
                                             nextcloudMessage = "No client available to save."
                                         } else {
+                                            store.clients.forEach { existingClient ->
+                                                store.updateClient(
+                                                    existingClient.copy(
+                                                        nextcloudUrl = savedNextcloudSettings.serverUrl,
+                                                        nextcloudUser = savedNextcloudSettings.username,
+                                                        nextcloudPassword = savedNextcloudSettings.appPassword
+                                                    )
+                                                )
+                                            }
+
                                             store.updateClient(
                                                 client.copy(
                                                     nextcloudUrl = savedNextcloudSettings.serverUrl,

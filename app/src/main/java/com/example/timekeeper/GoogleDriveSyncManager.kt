@@ -1,4 +1,5 @@
 package com.example.timekeeper
+
 import android.content.Context
 import com.google.android.gms.auth.api.signin.GoogleSignInAccount
 import com.google.api.client.extensions.android.http.AndroidHttp
@@ -11,15 +12,19 @@ import com.google.api.services.drive.model.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File as JavaFile
+
 object GoogleDriveSyncManager {
     private const val ROOT_FOLDER_NAME = "TimeKeeper"
+
     private val driveMappings = mutableListOf<DriveFileMapping>()
     private lateinit var persistence: LocalPersistence
+
     fun initialize(context: Context) {
         persistence = LocalPersistence(context)
         driveMappings.clear()
         driveMappings.addAll(persistence.loadDriveMappings())
     }
+
     suspend fun syncCurrentWindow(
         context: Context,
         store: TimeLogStore,
@@ -33,6 +38,7 @@ object GoogleDriveSyncManager {
                 settings = store.settings,
                 nowMillis = System.currentTimeMillis()
             )
+
             if (!csvFile.exists()) {
                 CsvWindowManager.writeCurrentWindowCsv(
                     context = context,
@@ -42,36 +48,49 @@ object GoogleDriveSyncManager {
                     nowMillis = System.currentTimeMillis()
                 )
             }
+
             val currentFile: JavaFile = CsvWindowManager.getCurrentWindowFile(
                 context = context,
                 client = client,
                 settings = store.settings,
                 nowMillis = System.currentTimeMillis()
             )
+
             val window = CsvWindowManager.calculateWindow(
                 settings = store.settings,
                 targetMillis = System.currentTimeMillis()
             )
+
             val windowKey = "${client.id}_${window.startDate}_${window.endDate}"
             val driveService = createDriveService(context, account)
+
+            val targetFolder = client.googleDriveFolder
+                .trim('/')
+                .ifBlank { "$ROOT_FOLDER_NAME/${client.clientName}" }
+
             val folderId = ensureFolderPathExists(
-                driveService,
-                "$ROOT_FOLDER_NAME/${client.clientName}"
+                driveService = driveService,
+                folderPath = targetFolder
             )
+
             val existingMapping = driveMappings.firstOrNull { it.windowKey == windowKey }
             val mimeType = "text/csv"
             val mediaContent = FileContent(mimeType, currentFile)
+
             val remoteFileId = if (existingMapping == null) {
                 val metadata = File().apply {
                     name = currentFile.name
                     this.mimeType = mimeType
                     parents = listOf(folderId)
                 }
+
                 val created = driveService.files()
                     .create(metadata, mediaContent)
                     .setFields("id,name,parents")
                     .execute()
+
                 val newId = created.id
+
                 driveMappings.removeAll { it.windowKey == windowKey }
                 driveMappings.add(
                     DriveFileMapping(
@@ -80,6 +99,7 @@ object GoogleDriveSyncManager {
                     )
                 )
                 persistence.saveDriveMappings(driveMappings)
+
                 newId
             } else {
                 driveService.files()
@@ -87,36 +107,58 @@ object GoogleDriveSyncManager {
                     .setAddParents(folderId)
                     .setFields("id,name,parents")
                     .execute()
+
                 existingMapping.driveFileId
             }
-            store.updateClient(
-                client.copy(
-                    googleDriveAccount = account.email ?: ""
-                )
-            )
+
+            val sharedAccountEmail = account.email.orEmpty()
+            if (sharedAccountEmail.isNotBlank()) {
+                store.clients.forEach { existingClient ->
+                    if (existingClient.googleDriveAccount != sharedAccountEmail) {
+                        store.updateClient(
+                            existingClient.copy(
+                                googleDriveAccount = sharedAccountEmail
+                            )
+                        )
+                    }
+                }
+            }
+
             Result.success(remoteFileId)
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
-    private fun ensureFolderPathExists(driveService: Drive, folderPath: String): String {
+
+    private fun ensureFolderPathExists(
+        driveService: Drive,
+        folderPath: String
+    ): String {
         val segments = folderPath.split('/').filter { it.isNotBlank() }
         var parentId: String? = null
+
         for (segment in segments) {
-            parentId = ensureSingleFolderExists(driveService, segment, parentId)
+            parentId = ensureSingleFolderExists(
+                driveService = driveService,
+                folderName = segment,
+                parentId = parentId
+            )
         }
+
         return parentId ?: throw IllegalStateException("Drive folder path is empty.")
     }
+
     private fun ensureSingleFolderExists(
         driveService: Drive,
         folderName: String,
         parentId: String?
     ): String {
-        val escapedName = folderName.replace("'", "\'")
+        val escapedName = folderName.replace("'", "\\'")
         val query = buildString {
             append("mimeType = 'application/vnd.google-apps.folder' and trashed = false and name = '")
             append(escapedName)
             append("'")
+
             if (parentId == null) {
                 append(" and 'root' in parents")
             } else {
@@ -125,6 +167,7 @@ object GoogleDriveSyncManager {
                 append("' in parents")
             }
         }
+
         val existing = driveService.files()
             .list()
             .setQ(query)
@@ -134,20 +177,24 @@ object GoogleDriveSyncManager {
             .execute()
             .files
             .firstOrNull()
+
         if (existing != null) {
             return existing.id
         }
+
         val metadata = File().apply {
             name = folderName
             mimeType = "application/vnd.google-apps.folder"
             parents = listOf(parentId ?: "root")
         }
+
         return driveService.files()
             .create(metadata)
             .setFields("id,name")
             .execute()
             .id
     }
+
     private fun createDriveService(
         context: Context,
         account: GoogleSignInAccount
@@ -157,6 +204,7 @@ object GoogleDriveSyncManager {
             setOf(DriveScopes.DRIVE_FILE)
         )
         credential.selectedAccount = account.account
+
         return Drive.Builder(
             AndroidHttp.newCompatibleTransport(),
             GsonFactory.getDefaultInstance(),
