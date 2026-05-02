@@ -119,6 +119,12 @@ class TimeLogStore(context: Context) {
         }
     }
 
+    // ADD THIS METHOD TO TimeLogStore.kt
+    fun deleteEntriesForClient(clientId: String) {
+        val updatedEntries = entries.filterNot { it.clientId == clientId }
+        entries.clear()
+        entries.addAll(updatedEntries)
+        persistence.saveEntries(entries)    }
     fun deleteAllLocalFilesForClient(clientId: String): Int {
         val client = getClientById(clientId) ?: return 0
         return deleteAllLocalFilesForClient(client)

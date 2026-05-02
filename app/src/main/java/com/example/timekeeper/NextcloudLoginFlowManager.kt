@@ -63,9 +63,10 @@ object NextcloudLoginFlowManager {
 
     suspend fun pollForResult(init: LoginInit, timeoutMillis: Long = 180_000L): Result<LoginResult> =
         withContext(Dispatchers.IO) {
-            try {
-                val startedAt = System.currentTimeMillis()
-                while (System.currentTimeMillis() - startedAt < timeoutMillis) {
+            val startedAt = System.currentTimeMillis()
+
+            while (System.currentTimeMillis() - startedAt < timeoutMillis) {
+                try {
                     val connection = (URL(init.pollEndpoint).openConnection() as HttpURLConnection).apply {
                         requestMethod = "POST"
                         doOutput = true
@@ -99,20 +100,21 @@ object NextcloudLoginFlowManager {
                             appPassword = json.getString("appPassword")
                         )
                     )
+                } catch (_: Exception) {
+                    delay(2000)
                 }
-
-                Result.failure(IllegalStateException("Timed out waiting for Nextcloud sign-in."))
-            } catch (e: Exception) {
-                Result.failure(e)
             }
+
+            Result.failure(IllegalStateException("Timed out waiting for Nextcloud sign-in."))
+        }
         }
 
-    fun openLoginInBrowser(context: Context, loginUrl: String) {
-        val intent = Intent(Intent.ACTION_VIEW, Uri.parse(loginUrl)).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-        context.startActivity(intent)
+fun openLoginInBrowser(context: Context, loginUrl: String) {
+    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(loginUrl)).apply {
+        addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
     }
+    context.startActivity(intent)
+}
 
     private fun normalizeServerUrl(serverUrl: String): String {
         val trimmed = serverUrl.trim().trimEnd('/')
@@ -128,4 +130,4 @@ object NextcloudLoginFlowManager {
         if (stream == null) return ""
         return BufferedReader(InputStreamReader(stream)).use { it.readText() }
     }
-}
+
