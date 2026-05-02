@@ -1,6 +1,5 @@
 package com.example.timekeeper
 
-import android.content.Intent
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -16,6 +15,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -27,6 +27,7 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -44,7 +45,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
-import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 
@@ -122,7 +122,7 @@ private fun SettingsScreen(
     var showNextcloudManual by remember { mutableStateOf(false) }
     var showLocalFiles by remember { mutableStateOf(false) }
     var showDeleteEntriesConfirm by remember { mutableStateOf(false) }
-    var showWeekEndPicker by remember { mutableStateOf(false) }
+    var showWeekEndingOptions by remember { mutableStateOf(false) }
 
     var userName by remember(client.id, store.settings.userName) {
         mutableStateOf(store.settings.userName)
@@ -148,6 +148,20 @@ private fun SettingsScreen(
     val localFiles = remember(client.id, localFilesVersion) {
         store.getLocalFilesForClient(client.id)
     }
+
+    val previewSettings = store.settings.copy(
+        anchorMillis = anchorMillisForWeekEnd(selectedWeekEndDay),
+        durationAmount = 1,
+        durationUnit = DurationUnit.WEEKS,
+        weekEndDay = selectedWeekEndDay
+    )
+    val window = CsvWindowManager.calculateWindow(previewSettings, System.currentTimeMillis())
+    val safeClientName = client.clientName
+        .trim()
+        .replace(Regex("[^A-Za-z0-9._-]+"), "_")
+        .trim('_')
+        .ifBlank { "client" }
+    val previewFileName = "timelog_${safeClientName}_${window.startDate}_to_${window.endDate}.csv"
 
     fun saveClient(
         url: String = nextcloudUrl,
@@ -194,15 +208,15 @@ private fun SettingsScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(SettingsAppBackground)
-            .padding(12.dp)
+            .padding(top = 48.dp, start = 16.dp, end = 16.dp, bottom = 16.dp)
             .verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text(
             text = "${client.clientName} Settings",
             modifier = Modifier
-                .align(Alignment.CenterHorizontally)
-                .padding(vertical = 12.dp),
+                .fillMaxWidth()
+                .padding(start = 12.dp, bottom = 4.dp),
             color = SettingsPrimaryText,
             fontWeight = FontWeight.Bold
         )
@@ -246,16 +260,16 @@ private fun SettingsScreen(
                     label = { Text("Your Name") },
                     singleLine = true,
                     colors = OutlinedTextFieldDefaults.colors(
-    focusedContainerColor = SettingsPanelBackground,
-    unfocusedContainerColor = SettingsPanelBackground,
-    focusedBorderColor = SettingsPrimaryAction,
-    unfocusedBorderColor = SettingsBorderColor,
-    focusedTextColor = SettingsPrimaryText,
-    unfocusedTextColor = SettingsPrimaryText,
-    focusedLabelColor = SettingsPrimaryAction,
-    unfocusedLabelColor = SettingsSecondaryText,
-    cursorColor = SettingsPrimaryAction
-)
+                        focusedContainerColor = SettingsPanelBackground,
+                        unfocusedContainerColor = SettingsPanelBackground,
+                        focusedBorderColor = SettingsPrimaryAction,
+                        unfocusedBorderColor = SettingsBorderColor,
+                        focusedTextColor = SettingsPrimaryText,
+                        unfocusedTextColor = SettingsPrimaryText,
+                        focusedLabelColor = SettingsPrimaryAction,
+                        unfocusedLabelColor = SettingsSecondaryText,
+                        cursorColor = SettingsPrimaryAction
+                    )
                 )
 
                 Text(
@@ -302,20 +316,87 @@ private fun SettingsScreen(
                 Surface(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { showWeekEndPicker = true },
+                        .clickable { showWeekEndingOptions = !showWeekEndingOptions },
                     shape = RoundedCornerShape(16.dp),
                     color = SettingsCardBackground
                 ) {
                     Column(modifier = Modifier.padding(12.dp)) {
-                        Text(
-                            text = "Week Ends On",
-                            color = SettingsSecondaryText
-                        )
+                        Text("Week Ends On", color = SettingsSecondaryText)
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = selectedWeekEndDay.displayName(),
                             color = SettingsPrimaryText,
                             fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = if (showWeekEndingOptions) "Tap a day below to choose." else "Tap to choose a different day.",
+                            color = SettingsSecondaryText
+                        )
+                    }
+                }
+
+                if (showWeekEndingOptions) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        color = SettingsCardBackground
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .heightIn(max = 260.dp)
+                                .verticalScroll(rememberScrollState())
+                                .padding(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            WeekEndDay.values().forEach { day ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable { selectedWeekEndDay = day }
+                                        .padding(vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    RadioButton(
+                                        selected = day == selectedWeekEndDay,
+                                        onClick = { selectedWeekEndDay = day }
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = day.displayName(),
+                                        color = SettingsPrimaryText,
+                                        fontWeight = if (day == selectedWeekEndDay) {
+                                            FontWeight.Bold
+                                        } else {
+                                            FontWeight.Normal
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    color = SettingsCardBackground
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text("Current Weekly Range", color = SettingsSecondaryText)
+                        Text(
+                            text = "${window.startDate} -> ${window.endDate}",
+                            color = SettingsPrimaryText,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text("Generated CSV File", color = SettingsSecondaryText)
+                        Text(
+                            text = previewFileName,
+                            color = SettingsPrimaryText
                         )
                     }
                 }
@@ -329,6 +410,7 @@ private fun SettingsScreen(
                     onClick = {
                         saveClient(weekEndDay = selectedWeekEndDay)
                         statusMessage = "Weekly CSV window saved."
+                        localFilesVersion += 1
                     },
                     modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.buttonColors(
@@ -394,6 +476,11 @@ private fun SettingsScreen(
                     )
                 }
 
+                Text(
+                    text = "Nextcloud folder: ${nextcloudFolder.ifBlank { "Not set" }}",
+                    color = SettingsSecondaryText
+                )
+
                 Button(
                     onClick = {
                         isManualSyncRunning = true
@@ -419,10 +506,7 @@ private fun SettingsScreen(
                 }
 
                 if (statusMessage.isNotBlank()) {
-                    Text(
-                        text = statusMessage,
-                        color = SettingsSecondaryText
-                    )
+                    Text(text = statusMessage, color = SettingsSecondaryText)
                 }
             }
         }
@@ -445,9 +529,7 @@ private fun SettingsScreen(
                 Button(
                     onClick = {
                         showNextcloudConnect = !showNextcloudConnect
-                        if (showNextcloudConnect) {
-                            showNextcloudManual = false
-                        }
+                        if (showNextcloudConnect) showNextcloudManual = false
                     },
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(18.dp),
@@ -475,16 +557,16 @@ private fun SettingsScreen(
                                 modifier = Modifier.fillMaxWidth(),
                                 label = { Text("Server URL") },
                                 colors = OutlinedTextFieldDefaults.colors(
-    focusedContainerColor = SettingsPanelBackground,
-    unfocusedContainerColor = SettingsPanelBackground,
-    focusedBorderColor = SettingsPrimaryAction,
-    unfocusedBorderColor = SettingsBorderColor,
-    focusedTextColor = SettingsPrimaryText,
-    unfocusedTextColor = SettingsPrimaryText,
-    focusedLabelColor = SettingsPrimaryAction,
-    unfocusedLabelColor = SettingsSecondaryText,
-    cursorColor = SettingsPrimaryAction
-)
+                                    focusedContainerColor = SettingsPanelBackground,
+                                    unfocusedContainerColor = SettingsPanelBackground,
+                                    focusedBorderColor = SettingsPrimaryAction,
+                                    unfocusedBorderColor = SettingsBorderColor,
+                                    focusedTextColor = SettingsPrimaryText,
+                                    unfocusedTextColor = SettingsPrimaryText,
+                                    focusedLabelColor = SettingsPrimaryAction,
+                                    unfocusedLabelColor = SettingsSecondaryText,
+                                    cursorColor = SettingsPrimaryAction
+                                )
                             )
 
                             OutlinedTextField(
@@ -493,16 +575,16 @@ private fun SettingsScreen(
                                 modifier = Modifier.fillMaxWidth(),
                                 label = { Text("Remote folder") },
                                 colors = OutlinedTextFieldDefaults.colors(
-    focusedContainerColor = SettingsPanelBackground,
-    unfocusedContainerColor = SettingsPanelBackground,
-    focusedBorderColor = SettingsPrimaryAction,
-    unfocusedBorderColor = SettingsBorderColor,
-    focusedTextColor = SettingsPrimaryText,
-    unfocusedTextColor = SettingsPrimaryText,
-    focusedLabelColor = SettingsPrimaryAction,
-    unfocusedLabelColor = SettingsSecondaryText,
-    cursorColor = SettingsPrimaryAction
-)
+                                    focusedContainerColor = SettingsPanelBackground,
+                                    unfocusedContainerColor = SettingsPanelBackground,
+                                    focusedBorderColor = SettingsPrimaryAction,
+                                    unfocusedBorderColor = SettingsBorderColor,
+                                    focusedTextColor = SettingsPrimaryText,
+                                    unfocusedTextColor = SettingsPrimaryText,
+                                    focusedLabelColor = SettingsPrimaryAction,
+                                    unfocusedLabelColor = SettingsSecondaryText,
+                                    cursorColor = SettingsPrimaryAction
+                                )
                             )
 
                             Button(
@@ -566,13 +648,7 @@ private fun SettingsScreen(
                                     contentColor = Color.Black
                                 )
                             ) {
-                                Text(
-                                    if (isConnectingNextcloud) {
-                                        "Waiting for login..."
-                                    } else {
-                                        "Open Browser Login"
-                                    }
-                                )
+                                Text(if (isConnectingNextcloud) "Waiting for login..." else "Open Browser Login")
                             }
 
                             if (nextcloudUser.isNotBlank()) {
@@ -588,9 +664,7 @@ private fun SettingsScreen(
                 Button(
                     onClick = {
                         showNextcloudManual = !showNextcloudManual
-                        if (showNextcloudManual) {
-                            showNextcloudConnect = false
-                        }
+                        if (showNextcloudManual) showNextcloudConnect = false
                     },
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(18.dp),
@@ -618,16 +692,16 @@ private fun SettingsScreen(
                                 modifier = Modifier.fillMaxWidth(),
                                 label = { Text("Server URL") },
                                 colors = OutlinedTextFieldDefaults.colors(
-    focusedContainerColor = SettingsPanelBackground,
-    unfocusedContainerColor = SettingsPanelBackground,
-    focusedBorderColor = SettingsPrimaryAction,
-    unfocusedBorderColor = SettingsBorderColor,
-    focusedTextColor = SettingsPrimaryText,
-    unfocusedTextColor = SettingsPrimaryText,
-    focusedLabelColor = SettingsPrimaryAction,
-    unfocusedLabelColor = SettingsSecondaryText,
-    cursorColor = SettingsPrimaryAction
-)
+                                    focusedContainerColor = SettingsPanelBackground,
+                                    unfocusedContainerColor = SettingsPanelBackground,
+                                    focusedBorderColor = SettingsPrimaryAction,
+                                    unfocusedBorderColor = SettingsBorderColor,
+                                    focusedTextColor = SettingsPrimaryText,
+                                    unfocusedTextColor = SettingsPrimaryText,
+                                    focusedLabelColor = SettingsPrimaryAction,
+                                    unfocusedLabelColor = SettingsSecondaryText,
+                                    cursorColor = SettingsPrimaryAction
+                                )
                             )
 
                             OutlinedTextField(
@@ -636,16 +710,16 @@ private fun SettingsScreen(
                                 modifier = Modifier.fillMaxWidth(),
                                 label = { Text("Username") },
                                 colors = OutlinedTextFieldDefaults.colors(
-    focusedContainerColor = SettingsPanelBackground,
-    unfocusedContainerColor = SettingsPanelBackground,
-    focusedBorderColor = SettingsPrimaryAction,
-    unfocusedBorderColor = SettingsBorderColor,
-    focusedTextColor = SettingsPrimaryText,
-    unfocusedTextColor = SettingsPrimaryText,
-    focusedLabelColor = SettingsPrimaryAction,
-    unfocusedLabelColor = SettingsSecondaryText,
-    cursorColor = SettingsPrimaryAction
-)
+                                    focusedContainerColor = SettingsPanelBackground,
+                                    unfocusedContainerColor = SettingsPanelBackground,
+                                    focusedBorderColor = SettingsPrimaryAction,
+                                    unfocusedBorderColor = SettingsBorderColor,
+                                    focusedTextColor = SettingsPrimaryText,
+                                    unfocusedTextColor = SettingsPrimaryText,
+                                    focusedLabelColor = SettingsPrimaryAction,
+                                    unfocusedLabelColor = SettingsSecondaryText,
+                                    cursorColor = SettingsPrimaryAction
+                                )
                             )
 
                             OutlinedTextField(
@@ -654,16 +728,16 @@ private fun SettingsScreen(
                                 modifier = Modifier.fillMaxWidth(),
                                 label = { Text("App Password") },
                                 colors = OutlinedTextFieldDefaults.colors(
-    focusedContainerColor = SettingsPanelBackground,
-    unfocusedContainerColor = SettingsPanelBackground,
-    focusedBorderColor = SettingsPrimaryAction,
-    unfocusedBorderColor = SettingsBorderColor,
-    focusedTextColor = SettingsPrimaryText,
-    unfocusedTextColor = SettingsPrimaryText,
-    focusedLabelColor = SettingsPrimaryAction,
-    unfocusedLabelColor = SettingsSecondaryText,
-    cursorColor = SettingsPrimaryAction
-)
+                                    focusedContainerColor = SettingsPanelBackground,
+                                    unfocusedContainerColor = SettingsPanelBackground,
+                                    focusedBorderColor = SettingsPrimaryAction,
+                                    unfocusedBorderColor = SettingsBorderColor,
+                                    focusedTextColor = SettingsPrimaryText,
+                                    unfocusedTextColor = SettingsPrimaryText,
+                                    focusedLabelColor = SettingsPrimaryAction,
+                                    unfocusedLabelColor = SettingsSecondaryText,
+                                    cursorColor = SettingsPrimaryAction
+                                )
                             )
 
                             OutlinedTextField(
@@ -672,16 +746,16 @@ private fun SettingsScreen(
                                 modifier = Modifier.fillMaxWidth(),
                                 label = { Text("Remote folder") },
                                 colors = OutlinedTextFieldDefaults.colors(
-    focusedContainerColor = SettingsPanelBackground,
-    unfocusedContainerColor = SettingsPanelBackground,
-    focusedBorderColor = SettingsPrimaryAction,
-    unfocusedBorderColor = SettingsBorderColor,
-    focusedTextColor = SettingsPrimaryText,
-    unfocusedTextColor = SettingsPrimaryText,
-    focusedLabelColor = SettingsPrimaryAction,
-    unfocusedLabelColor = SettingsSecondaryText,
-    cursorColor = SettingsPrimaryAction
-)
+                                    focusedContainerColor = SettingsPanelBackground,
+                                    unfocusedContainerColor = SettingsPanelBackground,
+                                    focusedBorderColor = SettingsPrimaryAction,
+                                    unfocusedBorderColor = SettingsBorderColor,
+                                    focusedTextColor = SettingsPrimaryText,
+                                    unfocusedTextColor = SettingsPrimaryText,
+                                    focusedLabelColor = SettingsPrimaryAction,
+                                    unfocusedLabelColor = SettingsSecondaryText,
+                                    cursorColor = SettingsPrimaryAction
+                                )
                             )
 
                             Button(
@@ -750,9 +824,7 @@ private fun SettingsScreen(
                                             checked = isChecked,
                                             onCheckedChange = { checked ->
                                                 if (checked) {
-                                                    if (!selectedFiles.contains(file.name)) {
-                                                        selectedFiles.add(file.name)
-                                                    }
+                                                    if (!selectedFiles.contains(file.name)) selectedFiles.add(file.name)
                                                 } else {
                                                     selectedFiles.remove(file.name)
                                                 }
@@ -772,9 +844,7 @@ private fun SettingsScreen(
                                         val names = selectedFiles.toList()
                                         var deletedCount = 0
                                         names.forEach { fileName ->
-                                            if (store.deleteLocalFileForClient(client.id, fileName)) {
-                                                deletedCount += 1
-                                            }
+                                            if (store.deleteLocalFileForClient(client.id, fileName)) deletedCount += 1
                                         }
                                         selectedFiles.clear()
                                         localFilesVersion += 1
@@ -830,6 +900,48 @@ private fun SettingsScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Text(
+                    text = "Repair",
+                    color = SettingsPrimaryText,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Text(
+                    text = "Regenerate local CSV files from saved time entries.",
+                    color = SettingsSecondaryText
+                )
+
+                Button(
+                    onClick = {
+                        CsvWindowManager.rewriteAllWindows(
+                            context = appContext,
+                            client = client,
+                            settings = store.settings,
+                            entries = store.getEntriesForClient(client.id)
+                        )
+                        localFilesVersion += 1
+                        statusMessage = "CSV files regenerated."
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = SettingsPrimaryAction,
+                        contentColor = Color.Black
+                    )
+                ) {
+                    Text("Regenerate CSV Files")
+                }
+            }
+        }
+
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+            color = SettingsPanelBackground
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
                     text = "Danger Zone",
                     color = SettingsPrimaryText,
                     fontWeight = FontWeight.Bold
@@ -849,54 +961,6 @@ private fun SettingsScreen(
         }
     }
 
-    if (showWeekEndPicker) {
-        AlertDialog(
-            onDismissRequest = { showWeekEndPicker = false },
-            containerColor = SettingsPanelBackground,
-            titleContentColor = SettingsPrimaryText,
-            textContentColor = SettingsSecondaryText,
-            title = { Text("Week Ends On") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    WeekEndDay.values().forEach { day ->
-                        Surface(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    selectedWeekEndDay = day
-                                    showWeekEndPicker = false
-                                },
-                            shape = RoundedCornerShape(12.dp),
-                            color = if (day == selectedWeekEndDay) {
-                                SettingsCardBackground
-                            } else {
-                                SettingsPanelBackground
-                            }
-                        ) {
-                            Text(
-                                text = day.displayName(),
-                                modifier = Modifier.padding(12.dp),
-                                color = SettingsPrimaryText,
-                                fontWeight = if (day == selectedWeekEndDay) FontWeight.Bold else FontWeight.Normal
-                            )
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                Button(
-                    onClick = { showWeekEndPicker = false },
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = SettingsPrimaryAction,
-                        contentColor = Color.Black
-                    )
-                ) {
-                    Text("Done")
-                }
-            }
-        )
-    }
-
     if (showDeleteEntriesConfirm) {
         AlertDialog(
             onDismissRequest = { showDeleteEntriesConfirm = false },
@@ -904,9 +968,7 @@ private fun SettingsScreen(
             titleContentColor = SettingsPrimaryText,
             textContentColor = SettingsSecondaryText,
             title = { Text("Delete all client entries?") },
-            text = {
-                Text("This will permanently delete all saved time entries for this client.")
-            },
+            text = { Text("This will permanently delete all saved time entries for this client.") },
             confirmButton = {
                 Button(
                     onClick = {
@@ -959,7 +1021,6 @@ private fun WeekEndDay.displayName(): String {
 private fun anchorMillisForWeekEnd(weekEndDay: WeekEndDay): Long {
     val zone = ZoneId.systemDefault()
     val today = LocalDate.now(zone)
-
     val weekEndValue = weekEndDay.isoDayValue()
     val weekStartValue = if (weekEndValue == 7) 1 else weekEndValue + 1
 
