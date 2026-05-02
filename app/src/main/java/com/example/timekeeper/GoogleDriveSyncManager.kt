@@ -1,5 +1,4 @@
 package com.example.timekeeper
-
 import android.content.Context
 import com.google.android.gms.auth.api.signin.GoogleSignInAccount
 import com.google.api.client.extensions.android.http.AndroidHttp
@@ -12,63 +11,67 @@ import com.google.api.services.drive.model.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.File as JavaFile
-
 object GoogleDriveSyncManager {
-
     private const val ROOT_FOLDER_NAME = "TimeKeeper"
     private val driveMappings = mutableListOf<DriveFileMapping>()
-
+    private lateinit var persistence: LocalPersistence
     fun initialize(context: Context) {
+        persistence = LocalPersistence(context)
         driveMappings.clear()
-        driveMappings.addAll(LocalPersistence.loadDriveMappings(context))
+        driveMappings.addAll(persistence.loadDriveMappings())
     }
-
     suspend fun syncCurrentWindow(
         context: Context,
+        store: TimeLogStore,
+        client: ClientProfile,
         account: GoogleSignInAccount
     ): Result<String> = withContext(Dispatchers.IO) {
         try {
-            val csvFile = TimeLogStore.currentCsvFile(context)
-
+            val csvFile = CsvWindowManager.getCurrentWindowFile(
+                context = context,
+                client = client,
+                settings = store.settings,
+                nowMillis = System.currentTimeMillis()
+            )
             if (!csvFile.exists()) {
                 CsvWindowManager.writeCurrentWindowCsv(
                     context = context,
-                    settings = TimeLogStore.settings,
-                    entries = TimeLogStore.entries,
+                    client = client,
+                    settings = store.settings,
+                    entries = store.getEntriesForClient(client.id),
                     nowMillis = System.currentTimeMillis()
                 )
             }
-
-            val currentFile: JavaFile = TimeLogStore.currentCsvFile(context)
-
+            val currentFile: JavaFile = CsvWindowManager.getCurrentWindowFile(
+                context = context,
+                client = client,
+                settings = store.settings,
+                nowMillis = System.currentTimeMillis()
+            )
             val window = CsvWindowManager.calculateWindow(
-                settings = TimeLogStore.settings,
+                settings = store.settings,
                 targetMillis = System.currentTimeMillis()
             )
-
-            val windowKey = "${window.startDate}_${window.endDate}"
-
+            val windowKey = "${client.id}_${window.startDate}_${window.endDate}"
             val driveService = createDriveService(context, account)
-            val folderId = ensureFolderPathExists(driveService, ROOT_FOLDER_NAME)
+            val folderId = ensureFolderPathExists(
+                driveService,
+                "$ROOT_FOLDER_NAME/${client.clientName}"
+            )
             val existingMapping = driveMappings.firstOrNull { it.windowKey == windowKey }
-
             val mimeType = "text/csv"
             val mediaContent = FileContent(mimeType, currentFile)
-
             val remoteFileId = if (existingMapping == null) {
                 val metadata = File().apply {
                     name = currentFile.name
                     this.mimeType = mimeType
                     parents = listOf(folderId)
                 }
-
                 val created = driveService.files()
                     .create(metadata, mediaContent)
                     .setFields("id,name,parents")
                     .execute()
-
                 val newId = created.id
-
                 driveMappings.removeAll { it.windowKey == windowKey }
                 driveMappings.add(
                     DriveFileMapping(
@@ -76,7 +79,7 @@ object GoogleDriveSyncManager {
                         driveFileId = newId
                     )
                 )
-                LocalPersistence.saveDriveMappings(context, driveMappings)
+                persistence.saveDriveMappings(driveMappings)
                 newId
             } else {
                 driveService.files()
@@ -84,34 +87,32 @@ object GoogleDriveSyncManager {
                     .setAddParents(folderId)
                     .setFields("id,name,parents")
                     .execute()
-
                 existingMapping.driveFileId
             }
-
-            LocalPersistence.saveDriveAccountEmail(context, account.email)
+            store.updateClient(
+                client.copy(
+                    googleDriveAccount = account.email ?: ""
+                )
+            )
             Result.success(remoteFileId)
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
-
     private fun ensureFolderPathExists(driveService: Drive, folderPath: String): String {
         val segments = folderPath.split('/').filter { it.isNotBlank() }
         var parentId: String? = null
-
         for (segment in segments) {
             parentId = ensureSingleFolderExists(driveService, segment, parentId)
         }
-
         return parentId ?: throw IllegalStateException("Drive folder path is empty.")
     }
-
     private fun ensureSingleFolderExists(
         driveService: Drive,
         folderName: String,
         parentId: String?
     ): String {
-        val escapedName = folderName.replace("'", "\\'")
+        val escapedName = folderName.replace("'", "\'")
         val query = buildString {
             append("mimeType = 'application/vnd.google-apps.folder' and trashed = false and name = '")
             append(escapedName)
@@ -124,7 +125,6 @@ object GoogleDriveSyncManager {
                 append("' in parents")
             }
         }
-
         val existing = driveService.files()
             .list()
             .setQ(query)
@@ -134,24 +134,20 @@ object GoogleDriveSyncManager {
             .execute()
             .files
             .firstOrNull()
-
         if (existing != null) {
             return existing.id
         }
-
         val metadata = File().apply {
             name = folderName
             mimeType = "application/vnd.google-apps.folder"
             parents = listOf(parentId ?: "root")
         }
-
         return driveService.files()
             .create(metadata)
             .setFields("id,name")
             .execute()
             .id
     }
-
     private fun createDriveService(
         context: Context,
         account: GoogleSignInAccount
@@ -161,7 +157,6 @@ object GoogleDriveSyncManager {
             setOf(DriveScopes.DRIVE_FILE)
         )
         credential.selectedAccount = account.account
-
         return Drive.Builder(
             AndroidHttp.newCompatibleTransport(),
             GsonFactory.getDefaultInstance(),
