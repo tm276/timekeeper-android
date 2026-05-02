@@ -19,19 +19,17 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -41,12 +39,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.example.timelogger.TimeFormatUtils
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.compose.LocalLifecycleOwner
+
 private val ClientAppBackground = Color(0xFF121212)
 private val ClientPanelBackground = Color(0xFF1E1E1E)
 private val ClientCardBackground = Color(0xFF263238)
 private val ClientPrimaryAction = Color(0xFF64B5F6)
-private val ClientSecondaryAction = Color(0xFF263238)
+private val ClientSecondaryAction = Color(0xFF37474F)
 private val ClientDestructiveAction = Color(0xFFE57373)
 private val ClientPrimaryText = Color(0xFFF5F5F5)
 private val ClientSecondaryText = Color(0xFFCFD8DC)
@@ -90,7 +91,23 @@ private fun ClientScreen(
     onBack: () -> Unit
 ) {
     val context = LocalContext.current
-    val store = remember { TimeLogStore(context.applicationContext) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    var reloadKey by remember { mutableIntStateOf(0) }
+
+    DisposableEffect(lifecycleOwner) {
+        val observer = object : DefaultLifecycleObserver {
+            override fun onResume(owner: LifecycleOwner) {
+                reloadKey += 1
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
+    val store = remember(reloadKey) { TimeLogStore(context.applicationContext) }
     val client = remember(store.clients, clientId) { store.getClientById(clientId) }
 
     if (client == null) {
@@ -107,8 +124,8 @@ private fun ClientScreen(
                 Button(
                     onClick = onBack,
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = ClientPrimaryAction,
-                        contentColor = Color.Black
+                        containerColor = ClientSecondaryAction,
+                        contentColor = ClientPrimaryText
                     )
                 ) {
                     Text("Back")
@@ -130,7 +147,9 @@ private fun ClientScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(ClientAppBackground)
-            .padding(12.dp)
+            .verticalScroll(rememberScrollState())
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         Text(
             text = client.clientName,
@@ -142,9 +161,7 @@ private fun ClientScreen(
         )
 
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 12.dp),
+            modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Button(
@@ -157,15 +174,10 @@ private fun ClientScreen(
                 modifier = Modifier.weight(1f),
                 shape = RoundedCornerShape(16.dp),
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = ClientPrimaryAction,
-                    contentColor = Color.Black
+                    containerColor = ClientSecondaryAction,
+                    contentColor = ClientPrimaryText
                 )
             ) {
-                Icon(
-                    imageVector = Icons.Filled.Settings,
-                    contentDescription = null
-                )
-                Spacer(modifier = Modifier.width(8.dp))
                 Text("Settings")
             }
 
@@ -182,173 +194,131 @@ private fun ClientScreen(
             }
         }
 
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(
-                    color = ClientPanelBackground,
-                    shape = RoundedCornerShape(20.dp)
-                )
-                .padding(16.dp)
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+            color = ClientPanelBackground
         ) {
             Column(
+                modifier = Modifier.padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                if (running && activeStart != null) {
-                    Text(
-                        text = "Session in progress",
-                        color = ClientPrimaryText,
-                        fontWeight = FontWeight.Bold
-                    )
+                Text(
+                    text = if (running) "Session in progress" else "Ready to start",
+                    color = ClientPrimaryText,
+                    fontWeight = FontWeight.Bold
+                )
 
+                if (running && activeStart != null) {
                     Text(
                         text = "Started at: ${TimeFormatUtils.formatTime(activeStart)} on ${TimeFormatUtils.formatDate(activeStart)}",
                         color = ClientSecondaryText
                     )
                 } else {
                     Text(
-                        text = "Ready to start",
-                        color = ClientPrimaryText,
-                        fontWeight = FontWeight.Bold
+                        text = "Use Start to begin tracking time for this client.",
+                        color = ClientSecondaryText
                     )
-
-                    if (client.userName.isNotBlank()) {
-                        Text(
-                            text = "User: ${client.userName}",
-                            color = ClientSecondaryText
-                        )
-                    }
                 }
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
+                if (!running) {
                     Button(
                         onClick = {
-                            if (!running) {
-                                store.startTimer(client.id)
-                            }
+                            store.startTimer(client.id)
+                            reloadKey += 1
                         },
-                        enabled = !running,
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(20.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = ClientPrimaryAction,
-                            contentColor = Color.Black,
-                            disabledContainerColor = ClientPrimaryAction.copy(alpha = 0.35f),
-                            disabledContentColor = Color.Black.copy(alpha = 0.7f)
+                            contentColor = Color.Black
                         )
                     ) {
-                        Icon(
-                            imageVector = Icons.Filled.PlayArrow,
-                            contentDescription = null
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
                         Text("Start")
                     }
-
-                    Button(
-                        onClick = {
-                            if (running) {
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = {
                                 description = ""
                                 dialogMode = ClientTimeDialogMode.Stop
                                 showDescriptionDialog = true
-                            }
-                        },
-                        enabled = running,
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(20.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = ClientDestructiveAction,
-                            contentColor = Color.Black,
-                            disabledContainerColor = ClientDestructiveAction.copy(alpha = 0.35f),
-                            disabledContentColor = Color.Black.copy(alpha = 0.7f)
-                        )
-                    ) {
-                        Text("Stop")
-                    }
-                }
-
-                Button(
-                    onClick = {
-                        if (running) {
-                            description = ""
-                            dialogMode = ClientTimeDialogMode.NextTask
-                            showDescriptionDialog = true
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(16.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = ClientDestructiveAction,
+                                contentColor = Color.Black
+                            )
+                        ) {
+                            Text("Stop")
                         }
-                    },
-                    enabled = running,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(20.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = ClientSecondaryAction,
-                        contentColor = ClientPrimaryText,
-                        disabledContainerColor = ClientBorderColor.copy(alpha = 0.35f),
-                        disabledContentColor = ClientPrimaryText.copy(alpha = 0.7f)
-                    )
-                ) {
-                    Text("Next Task")
+
+                        Button(
+                            onClick = {
+                                description = ""
+                                dialogMode = ClientTimeDialogMode.NextTask
+                                showDescriptionDialog = true
+                            },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(16.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = ClientPrimaryAction,
+                                contentColor = Color.Black
+                            )
+                        ) {
+                            Text("Next Task")
+                        }
+                    }
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
-
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f)
-                .background(
-                    color = ClientPanelBackground,
-                    shape = RoundedCornerShape(20.dp)
-                )
-                .padding(12.dp)
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+            color = ClientPanelBackground
         ) {
-            if (entries.isEmpty()) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
                 Text(
-                    text = "No entries yet",
-                    color = ClientEmptyStateText
+                    text = "Recent Entries",
+                    color = ClientPrimaryText,
+                    fontWeight = FontWeight.Bold
                 )
-            } else {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    entries.forEach { entry ->
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .background(
-                                    color = ClientCardBackground,
-                                    shape = RoundedCornerShape(16.dp)
-                                )
-                                .padding(12.dp)
+
+                if (entries.isEmpty()) {
+                    Text(
+                        text = "No time entries yet",
+                        color = ClientEmptyStateText
+                    )
+                } else {
+                    entries.take(10).forEach { entry ->
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(16.dp),
+                            color = ClientCardBackground
                         ) {
                             Column(
-                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                                modifier = Modifier.padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
                                 Text(
-                                    text = TimeFormatUtils.formatDate(entry.startMillis),
+                                    text = entry.description.ifBlank { "No description" },
                                     color = ClientPrimaryText,
                                     fontWeight = FontWeight.Bold
                                 )
                                 Text(
-                                    text = "Start: ${TimeFormatUtils.formatTime(entry.startMillis)}",
+                                    text = "${TimeFormatUtils.formatTime(entry.startMillis)} - ${TimeFormatUtils.formatTime(entry.stopMillis)}",
                                     color = ClientSecondaryText
                                 )
                                 Text(
-                                    text = "Stop: ${TimeFormatUtils.formatTime(entry.stopMillis)}",
-                                    color = ClientSecondaryText
-                                )
-                                Text(
-                                    text = "Duration: ${entry.durationMinutes} minutes",
-                                    color = ClientSecondaryText
-                                )
-                                Text(
-                                    text = "Description: ${entry.description}",
+                                    text = "${entry.durationMinutes} min",
                                     color = ClientSecondaryText
                                 )
                             }
@@ -360,27 +330,31 @@ private fun ClientScreen(
     }
 
     if (showDescriptionDialog) {
+        val title = if (dialogMode == ClientTimeDialogMode.Stop) "Stop Timer" else "Next Task"
+        val confirmLabel = if (dialogMode == ClientTimeDialogMode.Stop) "Stop" else "Save and Continue"
+        val fieldLabel = if (dialogMode == ClientTimeDialogMode.Stop) {
+            "What did you work on?"
+        } else {
+            "Task completed"
+        }
+
         AlertDialog(
-            onDismissRequest = { showDescriptionDialog = false },
+            onDismissRequest = {
+                showDescriptionDialog = false
+                description = ""
+            },
             containerColor = ClientPanelBackground,
             titleContentColor = ClientPrimaryText,
             textContentColor = ClientSecondaryText,
             title = {
-                Text(
-                    if (dialogMode == ClientTimeDialogMode.NextTask) {
-                        "Describe the task you just finished"
-                    } else {
-                        "Describe this time period"
-                    }
-                )
+                Text(title)
             },
             text = {
                 OutlinedTextField(
                     value = description,
                     onValueChange = { description = it },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Description") },
-                    placeholder = { Text("What did you do?") },
+                    label = { Text(fieldLabel) },
                     minLines = 3,
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedContainerColor = ClientPanelBackground,
@@ -398,32 +372,29 @@ private fun ClientScreen(
             confirmButton = {
                 Button(
                     onClick = {
-                        val trimmed = description.trim()
-                        if (trimmed.isBlank()) return@Button
-
-                        when (dialogMode) {
-                            ClientTimeDialogMode.Stop -> {
-                                store.stopTimer(trimmed)
-                            }
-
-                            ClientTimeDialogMode.NextTask -> {
-                                store.stopTimer(trimmed)
-                                store.startTimer(client.id)
-                            }
+                        val trimmedDescription = description.trim()
+                        store.stopTimer(trimmedDescription)
+                        if (dialogMode == ClientTimeDialogMode.NextTask) {
+                            store.startTimer(client.id)
                         }
+                        description = ""
                         showDescriptionDialog = false
+                        reloadKey += 1
                     },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = ClientPrimaryAction,
                         contentColor = Color.Black
                     )
                 ) {
-                    Text("Save")
+                    Text(confirmLabel)
                 }
             },
             dismissButton = {
                 Button(
-                    onClick = { showDescriptionDialog = false },
+                    onClick = {
+                        description = ""
+                        showDescriptionDialog = false
+                    },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = ClientSecondaryAction,
                         contentColor = ClientPrimaryText

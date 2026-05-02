@@ -13,6 +13,7 @@ class LocalPersistence(context: Context) {
     // -------------------------
     fun saveSettings(settings: TimeSettings) {
         val json = JSONObject().apply {
+            put("anchorMillis", settings.anchorMillis)
             put("durationAmount", settings.durationAmount)
             put("durationUnit", settings.durationUnit.name)
             put("userName", settings.userName)
@@ -26,7 +27,9 @@ class LocalPersistence(context: Context) {
         return TimeSettings(
             anchorMillis = obj.optLong("anchorMillis", System.currentTimeMillis()),
             durationAmount = obj.optInt("durationAmount", 7),
-            durationUnit = DurationUnit.valueOf(obj.optString("durationUnit", DurationUnit.DAYS.name)),
+            durationUnit = DurationUnit.valueOf(
+                obj.optString("durationUnit", DurationUnit.DAYS.name)
+            ),
             userName = obj.optString("userName", "")
         )
     }
@@ -93,7 +96,7 @@ class LocalPersistence(context: Context) {
     }
 
     // -------------------------
-    // ENTRIES (NEW)
+    // ENTRIES
     // -------------------------
     fun saveEntries(entries: List<TimeEntry>) {
         val array = JSONArray()
@@ -136,7 +139,7 @@ class LocalPersistence(context: Context) {
     }
 
     // -------------------------
-    // ACTIVE CLIENT
+    // DRIVE MAPPINGS
     // -------------------------
     fun saveDriveMappings(mappings: List<DriveFileMapping>) {
         val array = JSONArray()
@@ -172,7 +175,7 @@ class LocalPersistence(context: Context) {
     }
 
     // -------------------------
-    // ACTIVE CLIENT
+    // ACTIVE TIMER
     // -------------------------
     fun saveActiveClientId(clientId: String?) {
         prefs.edit().putString("activeClientId", clientId).apply()
@@ -184,5 +187,25 @@ class LocalPersistence(context: Context) {
 
     fun clearActiveClientId() {
         prefs.edit().remove("activeClientId").apply()
+    }
+
+    fun saveActiveStartMillis(startMillis: Long?) {
+        if (startMillis == null) {
+            prefs.edit().remove("activeStartMillis").apply()
+        } else {
+            prefs.edit().putLong("activeStartMillis", startMillis).apply()
+        }
+    }
+
+    fun loadActiveStartMillis(): Long? {
+        return if (prefs.contains("activeStartMillis")) {
+            prefs.getLong("activeStartMillis", 0L)
+        } else {
+            null
+        }
+    }
+
+    fun clearActiveStartMillis() {
+        prefs.edit().remove("activeStartMillis").apply()
     }
 }

@@ -21,10 +21,11 @@ class TimeLogStore(context: Context) {
     val entries = mutableStateListOf<TimeEntry>().apply {
         addAll(persistence.loadEntries())
     }
+
     var activeClientId by mutableStateOf(persistence.loadActiveClientId())
         private set
 
-    var activeStartMillis by mutableStateOf<Long?>(null)
+    var activeStartMillis by mutableStateOf(persistence.loadActiveStartMillis())
         private set
 
     init {
@@ -43,7 +44,9 @@ class TimeLogStore(context: Context) {
 
         if (activeClientId != null && clients.none { it.id == activeClientId }) {
             activeClientId = null
+            activeStartMillis = null
             persistence.clearActiveClientId()
+            persistence.clearActiveStartMillis()
         }
     }
 
@@ -119,12 +122,13 @@ class TimeLogStore(context: Context) {
         }
     }
 
-    // ADD THIS METHOD TO TimeLogStore.kt
     fun deleteEntriesForClient(clientId: String) {
         val updatedEntries = entries.filterNot { it.clientId == clientId }
         entries.clear()
         entries.addAll(updatedEntries)
-        persistence.saveEntries(entries)    }
+        persistence.saveEntries(entries)
+    }
+
     fun deleteAllLocalFilesForClient(clientId: String): Int {
         val client = getClientById(clientId) ?: return 0
         return deleteAllLocalFilesForClient(client)
@@ -149,9 +153,11 @@ class TimeLogStore(context: Context) {
     }
 
     fun startTimer(clientId: String) {
+        val now = System.currentTimeMillis()
         activeClientId = clientId
-        activeStartMillis = System.currentTimeMillis()
+        activeStartMillis = now
         persistence.saveActiveClientId(clientId)
+        persistence.saveActiveStartMillis(now)
     }
 
     fun stopTimer(description: String) {
@@ -175,12 +181,14 @@ class TimeLogStore(context: Context) {
         activeClientId = null
         activeStartMillis = null
         persistence.clearActiveClientId()
+        persistence.clearActiveStartMillis()
     }
 
     fun cancelActiveTimer() {
         activeClientId = null
         activeStartMillis = null
         persistence.clearActiveClientId()
+        persistence.clearActiveStartMillis()
     }
 
     fun getEntriesForClient(clientId: String): List<TimeEntry> {

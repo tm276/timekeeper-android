@@ -1,4 +1,6 @@
 package com.example.timekeeper
+
+import android.content.Intent
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -23,6 +25,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -40,6 +43,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
+
 private val SettingsAppBackground = Color(0xFF121212)
 private val SettingsPanelBackground = Color(0xFF1E1E1E)
 private val SettingsCardBackground = Color(0xFF263238)
@@ -48,14 +52,20 @@ private val SettingsSecondaryAction = Color(0xFF37474F)
 private val SettingsDangerAction = Color(0xFFE57373)
 private val SettingsPrimaryText = Color(0xFFF5F5F5)
 private val SettingsSecondaryText = Color(0xFFCFD8DC)
+private val SettingsBorderColor = Color(0xFF90A4AE)
+
 class SettingsActivity : ComponentActivity() {
+
     companion object {
         const val EXTRA_CLIENT_ID = "client_id"
     }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
         val clientId = intent.getStringExtra(EXTRA_CLIENT_ID)
+
         setContent {
             Surface(
                 modifier = Modifier.fillMaxSize(),
@@ -69,6 +79,7 @@ class SettingsActivity : ComponentActivity() {
         }
     }
 }
+
 @Composable
 private fun SettingsScreen(
     clientId: String?,
@@ -79,6 +90,7 @@ private fun SettingsScreen(
     val store = remember { TimeLogStore(appContext) }
     val scope = rememberCoroutineScope()
     val client = store.getClientById(clientId)
+
     if (client == null) {
         Box(
             modifier = Modifier
@@ -101,10 +113,15 @@ private fun SettingsScreen(
         }
         return
     }
+
     var showNextcloudConnect by remember { mutableStateOf(false) }
     var showNextcloudManual by remember { mutableStateOf(false) }
     var showLocalFiles by remember { mutableStateOf(false) }
     var showDeleteEntriesConfirm by remember { mutableStateOf(false) }
+
+    var userName by remember(client.id, store.settings.userName) {
+        mutableStateOf(store.settings.userName)
+    }
     var nextcloudUrl by remember(client.id) { mutableStateOf(client.nextcloudUrl) }
     var nextcloudUser by remember(client.id) { mutableStateOf(client.nextcloudUser) }
     var nextcloudPassword by remember(client.id) { mutableStateOf(client.nextcloudPassword) }
@@ -113,23 +130,34 @@ private fun SettingsScreen(
     }
     var autoSyncEnabled by remember(client.id) { mutableStateOf(client.autoSyncEnabled) }
     var syncNextcloudEnabled by remember(client.id) { mutableStateOf(client.syncNextcloudEnabled) }
+
     var isConnectingNextcloud by remember { mutableStateOf(false) }
     var isManualSyncRunning by remember { mutableStateOf(false) }
     var statusMessage by remember { mutableStateOf("") }
     var localFilesVersion by remember { mutableStateOf(0) }
+
     val selectedFiles = remember { mutableStateListOf<String>() }
     val localFiles = remember(client.id, localFilesVersion) {
         store.getLocalFilesForClient(client.id)
     }
+
     fun saveClient(
         url: String = nextcloudUrl,
         user: String = nextcloudUser,
         password: String = nextcloudPassword,
         folder: String = nextcloudFolder,
         autoSync: Boolean = autoSyncEnabled,
-        nextcloudSync: Boolean = syncNextcloudEnabled
+        nextcloudSync: Boolean = syncNextcloudEnabled,
+        newGlobalUserName: String = userName
     ) {
+        val trimmedGlobalUserName = newGlobalUserName.trim()
+
+        store.updateSettings(
+            store.settings.copy(userName = trimmedGlobalUserName)
+        )
+
         val updatedClient = client.copy(
+            userName = trimmedGlobalUserName,
             nextcloudUrl = url.trim(),
             nextcloudUser = user.trim(),
             nextcloudPassword = password,
@@ -141,6 +169,7 @@ private fun SettingsScreen(
         store.updateClient(updatedClient)
         ClientSyncScheduler.rescheduleIfEnabled(appContext, updatedClient)
     }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -157,6 +186,7 @@ private fun SettingsScreen(
             color = SettingsPrimaryText,
             fontWeight = FontWeight.Bold
         )
+
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -173,6 +203,62 @@ private fun SettingsScreen(
                 Text("Back")
             }
         }
+
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+            color = SettingsPanelBackground
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = "Identity",
+                    color = SettingsPrimaryText,
+                    fontWeight = FontWeight.Bold
+                )
+
+                OutlinedTextField(
+                    value = userName,
+                    onValueChange = { userName = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Your Name") },
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+    focusedContainerColor = SettingsPanelBackground,
+    unfocusedContainerColor = SettingsPanelBackground,
+    focusedBorderColor = SettingsPrimaryAction,
+    unfocusedBorderColor = SettingsBorderColor,
+    focusedTextColor = SettingsPrimaryText,
+    unfocusedTextColor = SettingsPrimaryText,
+    focusedLabelColor = SettingsPrimaryAction,
+    unfocusedLabelColor = SettingsSecondaryText,
+    cursorColor = SettingsPrimaryAction
+)
+                )
+
+                Text(
+                    text = "This name is written into CSV rows and copied to this client.",
+                    color = SettingsSecondaryText
+                )
+
+                Button(
+                    onClick = {
+                        saveClient(newGlobalUserName = userName)
+                        statusMessage = "Name saved."
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = SettingsPrimaryAction,
+                        contentColor = Color.Black
+                    )
+                ) {
+                    Text("Save Name")
+                }
+            }
+        }
+
         Surface(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(20.dp),
@@ -187,6 +273,7 @@ private fun SettingsScreen(
                     color = SettingsPrimaryText,
                     fontWeight = FontWeight.Bold
                 )
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
@@ -205,6 +292,7 @@ private fun SettingsScreen(
                         }
                     )
                 }
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically
@@ -223,17 +311,17 @@ private fun SettingsScreen(
                         }
                     )
                 }
+
                 Button(
                     onClick = {
                         isManualSyncRunning = true
                         statusMessage = "Running sync..."
                         scope.launch {
                             val result = SyncOrchestrator.sync(appContext)
-                            if (result.isSuccess) {
-                                statusMessage = "Manual sync completed."
+                            statusMessage = if (result.isSuccess) {
+                                "Manual sync completed."
                             } else {
-                                statusMessage = result.exceptionOrNull()?.message
-                                    ?: "Manual sync failed."
+                                result.exceptionOrNull()?.message ?: "Manual sync failed."
                             }
                             isManualSyncRunning = false
                         }
@@ -247,6 +335,7 @@ private fun SettingsScreen(
                 ) {
                     Text(if (isManualSyncRunning) "Syncing..." else "Manual Sync Now")
                 }
+
                 if (statusMessage.isNotBlank()) {
                     Text(
                         text = statusMessage,
@@ -255,6 +344,7 @@ private fun SettingsScreen(
                 }
             }
         }
+
         Surface(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(20.dp),
@@ -269,6 +359,7 @@ private fun SettingsScreen(
                     color = SettingsPrimaryText,
                     fontWeight = FontWeight.Bold
                 )
+
                 Button(
                     onClick = {
                         showNextcloudConnect = !showNextcloudConnect
@@ -285,6 +376,7 @@ private fun SettingsScreen(
                 ) {
                     Text("Connect to Nextcloud")
                 }
+
                 if (showNextcloudConnect) {
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
@@ -299,14 +391,38 @@ private fun SettingsScreen(
                                 value = nextcloudUrl,
                                 onValueChange = { nextcloudUrl = it },
                                 modifier = Modifier.fillMaxWidth(),
-                                label = { Text("Server URL") }
+                                label = { Text("Server URL") },
+                                colors = OutlinedTextFieldDefaults.colors(
+    focusedContainerColor = SettingsPanelBackground,
+    unfocusedContainerColor = SettingsPanelBackground,
+    focusedBorderColor = SettingsPrimaryAction,
+    unfocusedBorderColor = SettingsBorderColor,
+    focusedTextColor = SettingsPrimaryText,
+    unfocusedTextColor = SettingsPrimaryText,
+    focusedLabelColor = SettingsPrimaryAction,
+    unfocusedLabelColor = SettingsSecondaryText,
+    cursorColor = SettingsPrimaryAction
+)
                             )
+
                             OutlinedTextField(
                                 value = nextcloudFolder,
                                 onValueChange = { nextcloudFolder = it },
                                 modifier = Modifier.fillMaxWidth(),
-                                label = { Text("Remote folder") }
+                                label = { Text("Remote folder") },
+                                colors = OutlinedTextFieldDefaults.colors(
+    focusedContainerColor = SettingsPanelBackground,
+    unfocusedContainerColor = SettingsPanelBackground,
+    focusedBorderColor = SettingsPrimaryAction,
+    unfocusedBorderColor = SettingsBorderColor,
+    focusedTextColor = SettingsPrimaryText,
+    unfocusedTextColor = SettingsPrimaryText,
+    focusedLabelColor = SettingsPrimaryAction,
+    unfocusedLabelColor = SettingsSecondaryText,
+    cursorColor = SettingsPrimaryAction
+)
                             )
+
                             Button(
                                 onClick = {
                                     val trimmedServer = nextcloudUrl.trim()
@@ -318,8 +434,10 @@ private fun SettingsScreen(
                                         ).show()
                                         return@Button
                                     }
+
                                     isConnectingNextcloud = true
                                     statusMessage = "Opening browser for Nextcloud sign-in..."
+
                                     scope.launch {
                                         try {
                                             val initResult = NextcloudLoginFlowManager.startLogin(trimmedServer)
@@ -366,7 +484,15 @@ private fun SettingsScreen(
                                     contentColor = Color.Black
                                 )
                             ) {
-                                Text(if (isConnectingNextcloud) "Waiting for login..." else "Open Browser Login")                            }
+                                Text(
+                                    if (isConnectingNextcloud) {
+                                        "Waiting for login..."
+                                    } else {
+                                        "Open Browser Login"
+                                    }
+                                )
+                            }
+
                             if (nextcloudUser.isNotBlank()) {
                                 Text(
                                     text = "Signed in as: $nextcloudUser",
@@ -376,6 +502,7 @@ private fun SettingsScreen(
                         }
                     }
                 }
+
                 Button(
                     onClick = {
                         showNextcloudManual = !showNextcloudManual
@@ -392,6 +519,7 @@ private fun SettingsScreen(
                 ) {
                     Text("Manual Nextcloud Setup")
                 }
+
                 if (showNextcloudManual) {
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
@@ -406,26 +534,74 @@ private fun SettingsScreen(
                                 value = nextcloudUrl,
                                 onValueChange = { nextcloudUrl = it },
                                 modifier = Modifier.fillMaxWidth(),
-                                label = { Text("Server URL") }
+                                label = { Text("Server URL") },
+                                colors = OutlinedTextFieldDefaults.colors(
+    focusedContainerColor = SettingsPanelBackground,
+    unfocusedContainerColor = SettingsPanelBackground,
+    focusedBorderColor = SettingsPrimaryAction,
+    unfocusedBorderColor = SettingsBorderColor,
+    focusedTextColor = SettingsPrimaryText,
+    unfocusedTextColor = SettingsPrimaryText,
+    focusedLabelColor = SettingsPrimaryAction,
+    unfocusedLabelColor = SettingsSecondaryText,
+    cursorColor = SettingsPrimaryAction
+)
                             )
+
                             OutlinedTextField(
                                 value = nextcloudUser,
                                 onValueChange = { nextcloudUser = it },
                                 modifier = Modifier.fillMaxWidth(),
-                                label = { Text("Username") }
+                                label = { Text("Username") },
+                                colors = OutlinedTextFieldDefaults.colors(
+    focusedContainerColor = SettingsPanelBackground,
+    unfocusedContainerColor = SettingsPanelBackground,
+    focusedBorderColor = SettingsPrimaryAction,
+    unfocusedBorderColor = SettingsBorderColor,
+    focusedTextColor = SettingsPrimaryText,
+    unfocusedTextColor = SettingsPrimaryText,
+    focusedLabelColor = SettingsPrimaryAction,
+    unfocusedLabelColor = SettingsSecondaryText,
+    cursorColor = SettingsPrimaryAction
+)
                             )
+
                             OutlinedTextField(
                                 value = nextcloudPassword,
                                 onValueChange = { nextcloudPassword = it },
                                 modifier = Modifier.fillMaxWidth(),
-                                label = { Text("App Password") }
+                                label = { Text("App Password") },
+                                colors = OutlinedTextFieldDefaults.colors(
+    focusedContainerColor = SettingsPanelBackground,
+    unfocusedContainerColor = SettingsPanelBackground,
+    focusedBorderColor = SettingsPrimaryAction,
+    unfocusedBorderColor = SettingsBorderColor,
+    focusedTextColor = SettingsPrimaryText,
+    unfocusedTextColor = SettingsPrimaryText,
+    focusedLabelColor = SettingsPrimaryAction,
+    unfocusedLabelColor = SettingsSecondaryText,
+    cursorColor = SettingsPrimaryAction
+)
                             )
+
                             OutlinedTextField(
                                 value = nextcloudFolder,
                                 onValueChange = { nextcloudFolder = it },
                                 modifier = Modifier.fillMaxWidth(),
-                                label = { Text("Remote folder") }
+                                label = { Text("Remote folder") },
+                                colors = OutlinedTextFieldDefaults.colors(
+    focusedContainerColor = SettingsPanelBackground,
+    unfocusedContainerColor = SettingsPanelBackground,
+    focusedBorderColor = SettingsPrimaryAction,
+    unfocusedBorderColor = SettingsBorderColor,
+    focusedTextColor = SettingsPrimaryText,
+    unfocusedTextColor = SettingsPrimaryText,
+    focusedLabelColor = SettingsPrimaryAction,
+    unfocusedLabelColor = SettingsSecondaryText,
+    cursorColor = SettingsPrimaryAction
+)
                             )
+
                             Button(
                                 onClick = {
                                     saveClient()
@@ -444,6 +620,7 @@ private fun SettingsScreen(
                 }
             }
         }
+
         Surface(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(20.dp),
@@ -464,6 +641,7 @@ private fun SettingsScreen(
                 ) {
                     Text("Local Files")
                 }
+
                 if (showLocalFiles) {
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
@@ -506,6 +684,7 @@ private fun SettingsScreen(
                                         )
                                     }
                                 }
+
                                 Button(
                                     onClick = {
                                         val names = selectedFiles.toList()
@@ -532,93 +711,102 @@ private fun SettingsScreen(
                                 ) {
                                     Text("Delete Selected Files")
                                 }
-                        }
-                        Button(
-                            onClick = {
-                                val deletedCount = store.deleteAllLocalFilesForClient(client.id)
-                                selectedFiles.clear()
-                                localFilesVersion += 1
-                                statusMessage = if (deletedCount > 0) {
-                                    "Deleted $deletedCount local file(s)."
-                                } else {
-                                    "No local files were found to delete."
-                                }
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = SettingsDangerAction,
-                                contentColor = Color.Black
-                            )
-                        ) {
-                            Text("Delete All Local Files")
+                            }
+
+                            Button(
+                                onClick = {
+                                    val deletedCount = store.deleteAllLocalFilesForClient(client.id)
+                                    selectedFiles.clear()
+                                    localFilesVersion += 1
+                                    statusMessage = if (deletedCount > 0) {
+                                        "Deleted $deletedCount local file(s)."
+                                    } else {
+                                        "No local files were found to delete."
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = SettingsDangerAction,
+                                    contentColor = Color.Black
+                                )
+                            ) {
+                                Text("Delete All Local Files")
+                            }
                         }
                     }
                 }
             }
         }
-    }
-    Surface(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        color = SettingsPanelBackground
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+            color = SettingsPanelBackground
         ) {
-            Text(
-                text = "Danger Zone",
-                color = SettingsPrimaryText,
-                fontWeight = FontWeight.Bold
-            )
-            Button(
-                onClick = { showDeleteEntriesConfirm = true },
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = SettingsDangerAction,
-                    contentColor = Color.Black
-                )
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                Text("Delete All Client Entries")
+                Text(
+                    text = "Danger Zone",
+                    color = SettingsPrimaryText,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Button(
+                    onClick = { showDeleteEntriesConfirm = true },
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = SettingsDangerAction,
+                        contentColor = Color.Black
+                    )
+                ) {
+                    Text("Delete All Client Entries")
+                }
             }
         }
     }
-}
-if (showDeleteEntriesConfirm) {
-    AlertDialog(
-        onDismissRequest = { showDeleteEntriesConfirm = false },
-        title = {
-            Text("Delete all client entries?")
-        },
-        text = {
-            Text("This will permanently delete all saved time entries for this client.")
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    store.deleteEntriesForClient(client.id)
-                    statusMessage = "Deleted all client entries."
-                    showDeleteEntriesConfirm = false
-                },
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = SettingsDangerAction,
-                    contentColor = Color.Black
-                )
-            ) {
-                Text("Delete")
+
+    if (showDeleteEntriesConfirm) {
+        AlertDialog(
+            onDismissRequest = { showDeleteEntriesConfirm = false },
+            containerColor = SettingsPanelBackground,
+            titleContentColor = SettingsPrimaryText,
+            textContentColor = SettingsSecondaryText,
+            title = {
+                Text("Delete all client entries?")
+            },
+            text = {
+                Text("This will permanently delete all saved time entries for this client.")
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        store.deleteEntriesForClient(client.id)
+                        statusMessage = "Deleted all client entries."
+                        showDeleteEntriesConfirm = false
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = SettingsDangerAction,
+                        contentColor = Color.Black
+                    )
+                ) {
+                    Text("Delete")
+                }
+            },
+            dismissButton = {
+                Button(
+                    onClick = { showDeleteEntriesConfirm = false },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = SettingsSecondaryAction,
+                        contentColor = SettingsPrimaryText
+                    )
+                ) {
+                    Text("Cancel")
+                }
             }
-        },
-        dismissButton = {
-            Button(
-                onClick = { showDeleteEntriesConfirm = false },
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = SettingsSecondaryAction,
-                    contentColor = SettingsPrimaryText
-                )
-            ) {
-                Text("Cancel")
-            }
-        }
-    )
+        )
+    }
 }
-}
+
+
