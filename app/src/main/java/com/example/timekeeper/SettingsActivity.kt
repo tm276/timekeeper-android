@@ -303,6 +303,94 @@ private fun SettingsScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Text(
+                    text = "Sync",
+                    color = SettingsPrimaryText,
+                    fontWeight = FontWeight.Bold
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Auto sync",
+                        modifier = Modifier.weight(1f),
+                        color = SettingsPrimaryText
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Switch(
+                        checked = autoSyncEnabled,
+                        onCheckedChange = {
+                            autoSyncEnabled = it
+                            saveClient(autoSync = it)
+                        }
+                    )
+                }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Enable Nextcloud sync",
+                        modifier = Modifier.weight(1f),
+                        color = SettingsPrimaryText
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Switch(
+                        checked = syncNextcloudEnabled,
+                        onCheckedChange = {
+                            syncNextcloudEnabled = it
+                            saveClient(nextcloudSync = it)
+                        }
+                    )
+                }
+
+                Text(
+                    text = "Nextcloud folder: ${nextcloudFolder.ifBlank { "Not set" }}",
+                    color = SettingsSecondaryText
+                )
+
+                Button(
+                    onClick = {
+                        isManualSyncRunning = true
+                        statusMessage = "Running sync..."
+                        scope.launch {
+                            val result = SyncOrchestrator.sync(appContext)
+                            statusMessage = if (result.isSuccess) {
+                                "Manual sync completed."
+                            } else {
+                                result.exceptionOrNull()?.message ?: "Manual sync failed."
+                            }
+                            isManualSyncRunning = false
+                        }
+                    },
+                    enabled = !isManualSyncRunning,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = SettingsPrimaryAction,
+                        contentColor = Color.Black
+                    )
+                ) {
+                    Text(if (isManualSyncRunning) "Syncing..." else "Manual Sync Now")
+                }
+
+                if (statusMessage.isNotBlank()) {
+                    Text(text = statusMessage, color = SettingsSecondaryText)
+                }
+            }
+        }
+
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+            color = SettingsPanelBackground
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
                     text = "CSV Window",
                     color = SettingsPrimaryText,
                     fontWeight = FontWeight.Bold
@@ -419,94 +507,6 @@ private fun SettingsScreen(
                     )
                 ) {
                     Text("Save Weekly Window")
-                }
-            }
-        }
-
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(20.dp),
-            color = SettingsPanelBackground
-        ) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Text(
-                    text = "Sync",
-                    color = SettingsPrimaryText,
-                    fontWeight = FontWeight.Bold
-                )
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Auto sync",
-                        modifier = Modifier.weight(1f),
-                        color = SettingsPrimaryText
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Switch(
-                        checked = autoSyncEnabled,
-                        onCheckedChange = {
-                            autoSyncEnabled = it
-                            saveClient(autoSync = it)
-                        }
-                    )
-                }
-
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Enable Nextcloud sync",
-                        modifier = Modifier.weight(1f),
-                        color = SettingsPrimaryText
-                    )
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Switch(
-                        checked = syncNextcloudEnabled,
-                        onCheckedChange = {
-                            syncNextcloudEnabled = it
-                            saveClient(nextcloudSync = it)
-                        }
-                    )
-                }
-
-                Text(
-                    text = "Nextcloud folder: ${nextcloudFolder.ifBlank { "Not set" }}",
-                    color = SettingsSecondaryText
-                )
-
-                Button(
-                    onClick = {
-                        isManualSyncRunning = true
-                        statusMessage = "Running sync..."
-                        scope.launch {
-                            val result = SyncOrchestrator.sync(appContext)
-                            statusMessage = if (result.isSuccess) {
-                                "Manual sync completed."
-                            } else {
-                                result.exceptionOrNull()?.message ?: "Manual sync failed."
-                            }
-                            isManualSyncRunning = false
-                        }
-                    },
-                    enabled = !isManualSyncRunning,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = SettingsPrimaryAction,
-                        contentColor = Color.Black
-                    )
-                ) {
-                    Text(if (isManualSyncRunning) "Syncing..." else "Manual Sync Now")
-                }
-
-                if (statusMessage.isNotBlank()) {
-                    Text(text = statusMessage, color = SettingsSecondaryText)
                 }
             }
         }
