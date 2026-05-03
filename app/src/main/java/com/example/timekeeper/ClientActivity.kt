@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -35,20 +34,18 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.role
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import com.example.timekeeper.ClientActivity.Companion.EXTRA_CLIENT_ID
+import kotlinx.coroutines.launch
 
 private val ClientAppBackground = Color(0xFF121212)
 private val ClientPanelBackground = Color(0xFF1E1E1E)
@@ -99,6 +96,7 @@ private fun ClientScreen(
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
+    val coroutineScope = rememberCoroutineScope()
 
     var reloadKey by remember { mutableIntStateOf(0) }
 
@@ -134,12 +132,6 @@ private fun ClientScreen(
                 Spacer(modifier = Modifier.height(12.dp))
                 Button(
                     onClick = onBack,
-                    modifier = Modifier
-                        .heightIn(min = 56.dp)
-                        .semantics {
-                            role = Role.Button
-                            contentDescription = "Go back to clients"
-                        },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = ClientSecondaryAction,
                         contentColor = ClientPrimaryText
@@ -176,6 +168,37 @@ private fun ClientScreen(
     var editStartMillis by remember { mutableStateOf(0L) }
     var editStopMillis by remember { mutableStateOf(0L) }
 
+    var showWrongSiteWarning by remember { mutableStateOf(false) }
+    var warningSite by remember { mutableStateOf<WorkSite?>(null) }
+    var warningClientName by remember { mutableStateOf("another client") }
+
+    fun startTimerForCurrentClient() {
+        store.startTimer(client.id)
+        reloadKey += 1
+    }
+
+    fun checkLocationBeforeStart() {
+        coroutineScope.launch {
+            val location = CurrentLocationProvider.getCurrentLocation(context.applicationContext)
+            val match = location?.let { currentLocation ->
+                LocationMatcher.findCurrentSite(
+                    latitude = currentLocation.latitude,
+                    longitude = currentLocation.longitude,
+                    workSites = WorkSiteStore(context.applicationContext).loadSites()
+                )
+            }
+
+            val matchedSite = match?.workSite
+            if (matchedSite != null && matchedSite.clientId != client.id) {
+                warningSite = matchedSite
+                warningClientName = store.getClientById(matchedSite.clientId)?.clientName ?: "another client"
+                showWrongSiteWarning = true
+            } else {
+                startTimerForCurrentClient()
+            }
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -188,7 +211,6 @@ private fun ClientScreen(
             text = client.clientName,
             modifier = Modifier
                 .fillMaxWidth()
-                .semantics { heading() }
                 .padding(top = 12.dp, bottom = 4.dp, start = 12.dp),
             color = ClientPrimaryText,
             fontWeight = FontWeight.Bold
@@ -205,13 +227,7 @@ private fun ClientScreen(
                             .putExtra(SettingsActivity.EXTRA_CLIENT_ID, client.id)
                     )
                 },
-                modifier = Modifier
-                    .weight(1f)
-                    .heightIn(min = 56.dp)
-                    .semantics {
-                        role = Role.Button
-                        contentDescription = "Open settings for ${client.clientName}"
-                    },
+                modifier = Modifier.weight(1f),
                 shape = RoundedCornerShape(16.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = ClientSecondaryAction,
@@ -223,13 +239,7 @@ private fun ClientScreen(
 
             Button(
                 onClick = onBack,
-                modifier = Modifier
-                    .weight(1f)
-                    .heightIn(min = 56.dp)
-                    .semantics {
-                        role = Role.Button
-                        contentDescription = "Go back to clients"
-                    },
+                modifier = Modifier.weight(1f),
                 shape = RoundedCornerShape(16.dp),
                 colors = ButtonDefaults.buttonColors(
                     containerColor = ClientSecondaryAction,
@@ -249,14 +259,14 @@ private fun ClientScreen(
                 modifier = Modifier.padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text("Current Week", modifier = Modifier.semantics { heading() }, color = ClientSecondaryText)
+                Text("Current Week", color = ClientSecondaryText)
                 Text(
                     text = "${window.startDate} → ${window.endDate}",
                     color = ClientPrimaryText,
                     fontWeight = FontWeight.Bold
                 )
                 Spacer(modifier = Modifier.height(4.dp))
-                Text("CSV File", modifier = Modifier.semantics { heading() }, color = ClientSecondaryText)
+                Text("CSV File", color = ClientSecondaryText)
                 Text(
                     text = fileName,
                     color = ClientPrimaryText
@@ -265,11 +275,7 @@ private fun ClientScreen(
         }
 
         Surface(
-            modifier = Modifier
-                .fillMaxWidth()
-                .semantics(mergeDescendants = true) {
-                    contentDescription = formatLastSync(store)
-                },
+            modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(20.dp),
             color = ClientPanelBackground
         ) {
@@ -315,16 +321,9 @@ private fun ClientScreen(
                 if (!running) {
                     Button(
                         onClick = {
-                            store.startTimer(client.id)
-                            reloadKey += 1
+                            checkLocationBeforeStart()
                         },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(min = 56.dp)
-                            .semantics {
-                                role = Role.Button
-                                contentDescription = "Start timer for ${client.clientName}"
-                            },
+                        modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(16.dp),
                         colors = ButtonDefaults.buttonColors(
                             containerColor = ClientPrimaryAction,
@@ -344,13 +343,7 @@ private fun ClientScreen(
                                 dialogMode = ClientTimeDialogMode.Stop
                                 showDescriptionDialog = true
                             },
-                            modifier = Modifier
-                                .weight(1f)
-                                .heightIn(min = 56.dp)
-                                .semantics {
-                                    role = Role.Button
-                                    contentDescription = "Stop timer and describe work for ${client.clientName}"
-                                },
+                            modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(16.dp),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = ClientDestructiveAction,
@@ -366,13 +359,7 @@ private fun ClientScreen(
                                 dialogMode = ClientTimeDialogMode.NextTask
                                 showDescriptionDialog = true
                             },
-                            modifier = Modifier
-                                .weight(1f)
-                                .heightIn(min = 56.dp)
-                                .semantics {
-                                    role = Role.Button
-                                    contentDescription = "Save current task and start next task for ${client.clientName}"
-                                },
+                            modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(16.dp),
                             colors = ButtonDefaults.buttonColors(
                                 containerColor = ClientPrimaryAction,
@@ -395,7 +382,7 @@ private fun ClientScreen(
                 modifier = Modifier.padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text("This Week Total", modifier = Modifier.semantics { heading() }, color = ClientSecondaryText)
+                Text("This Week Total", color = ClientSecondaryText)
                 Text(
                     text = "$totalMinutes min",
                     color = ClientPrimaryText,
@@ -415,7 +402,6 @@ private fun ClientScreen(
             ) {
                 Text(
                     text = "Recent Entries",
-                    modifier = Modifier.semantics { heading() },
                     color = ClientPrimaryText,
                     fontWeight = FontWeight.Bold
                 )
@@ -430,11 +416,6 @@ private fun ClientScreen(
                         Surface(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .heightIn(min = 72.dp)
-                                .semantics {
-                                    role = Role.Button
-                                    contentDescription = "Edit time entry. ${entry.description.ifBlank { "No description" }}. From ${TimeFormatUtils.formatTime(entry.startMillis)} to ${TimeFormatUtils.formatTime(entry.stopMillis)}. Duration ${entry.durationMinutes} minutes."
-                                }
                                 .clickable {
                                     editDescription = entry.description
                                     editStartMillis = entry.startMillis
@@ -445,7 +426,7 @@ private fun ClientScreen(
                             color = ClientCardBackground
                         ) {
                             Column(
-                                modifier = Modifier.padding(16.dp),
+                                modifier = Modifier.padding(12.dp),
                                 verticalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
                                 Text(
@@ -488,9 +469,7 @@ private fun ClientScreen(
                 OutlinedTextField(
                     value = description,
                     onValueChange = { description = it },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .semantics { contentDescription = "Work description" },
+                    modifier = Modifier.fillMaxWidth(),
                     label = { Text("What did you work on") },
                     minLines = 3,
                     colors = OutlinedTextFieldDefaults.colors(
@@ -511,19 +490,13 @@ private fun ClientScreen(
                     onClick = {
                         val trimmedDescription = description.trim()
                         store.stopTimer(trimmedDescription)
-                        if (dialogMode == ClientTimeDialogMode.NextTask) {
-                            store.startTimer(client.id)
-                        }
                         description = ""
                         showDescriptionDialog = false
                         reloadKey += 1
+                        if (dialogMode == ClientTimeDialogMode.NextTask) {
+                            checkLocationBeforeStart()
+                        }
                     },
-                    modifier = Modifier
-                        .heightIn(min = 56.dp)
-                        .semantics {
-                            role = Role.Button
-                            contentDescription = confirmLabel
-                        },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = ClientPrimaryAction,
                         contentColor = Color.Black
@@ -538,18 +511,88 @@ private fun ClientScreen(
                         description = ""
                         showDescriptionDialog = false
                     },
-                    modifier = Modifier
-                        .heightIn(min = 56.dp)
-                        .semantics {
-                            role = Role.Button
-                            contentDescription = "Cancel and keep timer running"
-                        },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = ClientSecondaryAction,
                         contentColor = ClientPrimaryText
                     )
                 ) {
                     Text("Cancel")
+                }
+            }
+        )
+    }
+
+    if (showWrongSiteWarning) {
+        val site = warningSite
+        AlertDialog(
+            onDismissRequest = {
+                showWrongSiteWarning = false
+                warningSite = null
+            },
+            containerColor = ClientPanelBackground,
+            titleContentColor = ClientPrimaryText,
+            textContentColor = ClientSecondaryText,
+            title = {
+                Text("Wrong Client Site?")
+            },
+            text = {
+                Text(
+                    text = if (site != null) {
+                        "You appear to be at $warningClientName — ${site.siteName}, but you are starting time for ${client.clientName}."
+                    } else {
+                        "You appear to be at another client site, but you are starting time for ${client.clientName}."
+                    }
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showWrongSiteWarning = false
+                        warningSite = null
+                        startTimerForCurrentClient()
+                    },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = ClientPrimaryAction,
+                        contentColor = Color.Black
+                    )
+                ) {
+                    Text("Start Anyway")
+                }
+            },
+            dismissButton = {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(
+                        onClick = {
+                            val destinationClientId = site?.clientId
+                            showWrongSiteWarning = false
+                            warningSite = null
+                            if (destinationClientId != null) {
+                                context.startActivity(
+                                    Intent(context, ClientActivity::class.java)
+                                        .putExtra(EXTRA_CLIENT_ID, destinationClientId)
+                                )
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = ClientSecondaryAction,
+                            contentColor = ClientPrimaryText
+                        )
+                    ) {
+                        Text("Go to Site Client")
+                    }
+
+                    Button(
+                        onClick = {
+                            showWrongSiteWarning = false
+                            warningSite = null
+                        },
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = ClientSecondaryAction,
+                            contentColor = ClientPrimaryText
+                        )
+                    ) {
+                        Text("Cancel")
+                    }
                 }
             }
         )
@@ -571,9 +614,7 @@ private fun ClientScreen(
                 OutlinedTextField(
                     value = editDescription,
                     onValueChange = { editDescription = it },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .semantics { contentDescription = "Edit work description" },
+                    modifier = Modifier.fillMaxWidth(),
                     label = { Text("What did you work on") },
                     minLines = 3,
                     colors = OutlinedTextFieldDefaults.colors(
@@ -610,12 +651,6 @@ private fun ClientScreen(
                         showEditDescriptionDialog = false
                         reloadKey += 1
                     },
-                    modifier = Modifier
-                        .heightIn(min = 56.dp)
-                        .semantics {
-                            role = Role.Button
-                            contentDescription = "Save edited description"
-                        },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = ClientPrimaryAction,
                         contentColor = Color.Black
@@ -630,12 +665,6 @@ private fun ClientScreen(
                         editDescription = ""
                         showEditDescriptionDialog = false
                     },
-                    modifier = Modifier
-                        .heightIn(min = 56.dp)
-                        .semantics {
-                            role = Role.Button
-                            contentDescription = "Cancel editing description"
-                        },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = ClientSecondaryAction,
                         contentColor = ClientPrimaryText
