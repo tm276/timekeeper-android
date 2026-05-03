@@ -1,8 +1,11 @@
 package com.example.timekeeper
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
@@ -29,21 +32,25 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
+import kotlinx.coroutines.launch
 
 private val MainAppBackground = Color(0xFF121212)
 private val MainPanelBackground = Color(0xFF1E1E1E)
@@ -54,6 +61,8 @@ private val MainDestructiveAction = Color(0xFFE57373)
 private val MainPrimaryText = Color(0xFFF5F5F5)
 private val MainSecondaryText = Color(0xFFCFD8DC)
 private val MainBorderColor = Color(0xFF90A4AE)
+private val MainCurrentSiteCardBackground = Color(0xFF31453A)
+private val MainCurrentSiteAccent = Color(0xFFA5D6A7)
 
 class MainActivity : ComponentActivity() {
 
@@ -76,6 +85,46 @@ class MainActivity : ComponentActivity() {
 private fun MainScreen() {
     val context = LocalContext.current
     val store = remember { TimeLogStore(context.applicationContext) }
+    val workSiteStore = remember { WorkSiteStore(context.applicationContext) }
+
+    var currentSiteMatch by remember { mutableStateOf<LocationMatcher.Match?>(null) }
+    val coroutineScope = rememberCoroutineScope()
+
+    fun refreshCurrentSite() {
+        coroutineScope.launch {
+            val location = CurrentLocationProvider.getCurrentLocation(context.applicationContext)
+            currentSiteMatch = if (location != null) {
+                LocationMatcher.findCurrentSite(
+                    latitude = location.latitude,
+                    longitude = location.longitude,
+                    workSites = workSiteStore.loadSites()
+                )
+            } else {
+                null
+            }
+        }
+    }
+
+    val locationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            refreshCurrentSite()
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        val hasLocationPermission = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.ACCESS_FINE_LOCATION
+        ) == PackageManager.PERMISSION_GRANTED
+
+        if (hasLocationPermission) {
+            refreshCurrentSite()
+        } else {
+            locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
+        }
+    }
 
     var showCreateDialog by remember { mutableStateOf(false) }
     var editingClient by remember { mutableStateOf<ClientProfile?>(null) }
@@ -97,8 +146,7 @@ private fun MainScreen() {
             text = "TimeKeeper",
             modifier = Modifier
                 .align(Alignment.CenterHorizontally)
-                .padding(vertical = 12.dp)
-                .semantics { heading() },
+                .padding(vertical = 12.dp),
             color = MainPrimaryText,
             fontWeight = FontWeight.Bold
         )
@@ -114,7 +162,6 @@ private fun MainScreen() {
             ) {
                 Text(
                     text = "Clients",
-                    modifier = Modifier.semantics { heading() },
                     color = MainPrimaryText,
                     fontWeight = FontWeight.Bold
                 )
@@ -123,11 +170,7 @@ private fun MainScreen() {
                     onClick = { showCreateDialog = true },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(min = 56.dp)
-                        .semantics {
-                            role = Role.Button
-                            contentDescription = "Make a new client"
-                        },
+                        .heightIn(min = 56.dp),
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MainPrimaryAction,
                         contentColor = Color.Black
@@ -160,17 +203,25 @@ private fun MainScreen() {
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 items(store.clients, key = { it.id }) { client ->
+                    val currentSite = currentSiteMatch?.workSite
+                    val isAtCurrentSite = currentSite?.clientId == client.id
+                    val clientCardDescription = buildString {
+                        append("Open client ${client.clientName}")
+                        if (client.userName.isNotBlank()) {
+                            append(", user ${client.userName}")
+                        }
+                        if (isAtCurrentSite && currentSite != null) {
+                            append(". At site: ${currentSite.siteName}")
+                        }
+                    }
+
                     Surface(
                         modifier = Modifier
                             .fillMaxWidth()
                             .heightIn(min = 72.dp)
                             .semantics {
                                 role = Role.Button
-                                contentDescription = if (client.userName.isNotBlank()) {
-                                    "Open client ${client.clientName}, user ${client.userName}"
-                                } else {
-                                    "Open client ${client.clientName}"
-                                }
+                                contentDescription = clientCardDescription
                             }
                             .clickable {
                                 context.startActivity(
@@ -179,10 +230,10 @@ private fun MainScreen() {
                                 )
                             },
                         shape = RoundedCornerShape(18.dp),
-                        color = MainCardBackground
+                        color = if (isAtCurrentSite) MainCurrentSiteCardBackground else MainCardBackground
                     ) {
                         Column(
-                            modifier = Modifier.padding(14.dp),
+                            modifier = Modifier.padding(16.dp),
                             verticalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             Text(
@@ -190,6 +241,14 @@ private fun MainScreen() {
                                 color = MainPrimaryText,
                                 fontWeight = FontWeight.Bold
                             )
+
+                            if (isAtCurrentSite && currentSite != null) {
+                                Text(
+                                    text = "At site: ${currentSite.siteName}",
+                                    color = MainCurrentSiteAccent,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
 
                             if (client.userName.isNotBlank()) {
                                 Text(
@@ -209,12 +268,6 @@ private fun MainScreen() {
                             ) {
                                 Button(
                                     onClick = { editingClient = client },
-                                    modifier = Modifier
-                                        .heightIn(min = 56.dp)
-                                        .semantics {
-                                            role = Role.Button
-                                            contentDescription = "Edit client name for ${client.clientName}"
-                                        },
                                     colors = ButtonDefaults.buttonColors(
                                         containerColor = MainSecondaryAction,
                                         contentColor = MainPrimaryText
@@ -227,12 +280,6 @@ private fun MainScreen() {
 
                                 Button(
                                     onClick = { deletingClient = client },
-                                    modifier = Modifier
-                                        .heightIn(min = 56.dp)
-                                        .semantics {
-                                            role = Role.Button
-                                            contentDescription = "Delete client ${client.clientName}"
-                                        },
                                     colors = ButtonDefaults.buttonColors(
                                         containerColor = MainDestructiveAction,
                                         contentColor = Color.Black
@@ -290,19 +337,13 @@ private fun MainScreen() {
             titleContentColor = MainPrimaryText,
             textContentColor = MainSecondaryText,
             title = { Text("Delete Client") },
-            text = { Text("Delete client ${client.clientName}? This action cannot be undone.") },
+            text = { Text("Delete ${client.clientName}?") },
             confirmButton = {
                 Button(
                     onClick = {
                         store.deleteClient(client.id)
                         deletingClient = null
                     },
-                    modifier = Modifier
-                        .heightIn(min = 56.dp)
-                        .semantics {
-                            role = Role.Button
-                            contentDescription = "Confirm delete client ${client.clientName}"
-                        },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MainDestructiveAction,
                         contentColor = Color.Black
@@ -314,12 +355,6 @@ private fun MainScreen() {
             dismissButton = {
                 Button(
                     onClick = { deletingClient = null },
-                    modifier = Modifier
-                        .heightIn(min = 56.dp)
-                        .semantics {
-                            role = Role.Button
-                            contentDescription = "Cancel deleting client ${client.clientName}"
-                        },
                     colors = ButtonDefaults.buttonColors(
                         containerColor = MainSecondaryAction,
                         contentColor = MainPrimaryText
@@ -347,17 +382,12 @@ private fun ClientNameDialog(
         containerColor = MainPanelBackground,
         titleContentColor = MainPrimaryText,
         textContentColor = MainSecondaryText,
-        title = { Text(title, modifier = Modifier.semantics { heading() }) },
+        title = { Text(title) },
         text = {
             OutlinedTextField(
                 value = value,
                 onValueChange = { value = it },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(min = 56.dp)
-                    .semantics {
-                        contentDescription = "Client name"
-                    },
+                modifier = Modifier.fillMaxWidth(),
                 label = { Text("Client Name") },
                 singleLine = true,
                 colors = OutlinedTextFieldDefaults.colors(
@@ -376,12 +406,6 @@ private fun ClientNameDialog(
         confirmButton = {
             Button(
                 onClick = { onConfirm(value) },
-                modifier = Modifier
-                    .heightIn(min = 56.dp)
-                    .semantics {
-                        role = Role.Button
-                        contentDescription = "$confirmLabel client name"
-                    },
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MainPrimaryAction,
                     contentColor = Color.Black
@@ -393,12 +417,6 @@ private fun ClientNameDialog(
         dismissButton = {
             Button(
                 onClick = onDismiss,
-                modifier = Modifier
-                    .heightIn(min = 56.dp)
-                    .semantics {
-                        role = Role.Button
-                        contentDescription = "Cancel client name dialog"
-                    },
                 colors = ButtonDefaults.buttonColors(
                     containerColor = MainSecondaryAction,
                     contentColor = MainPrimaryText

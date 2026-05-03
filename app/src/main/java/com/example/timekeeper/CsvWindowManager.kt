@@ -20,7 +20,7 @@ object CsvWindowManager {
         val window = calculateWindow(settings, nowMillis)
         val safeClientName = sanitizeFileName(client.clientName)
         val fileName = "timelog_${safeClientName}_${window.startDate}_to_${window.endDate}.csv"
-        return File(context.filesDir, fileName)
+        return File(getClientFolder(context, client), fileName)
     }
 
     fun writeCurrentWindowCsv(
@@ -80,7 +80,7 @@ object CsvWindowManager {
         grouped.forEach { (window, windowEntries) ->
             val safeClientName = sanitizeFileName(client.clientName)
             val file = File(
-                context.filesDir,
+                getClientFolder(context, client),
                 "timelog_${safeClientName}_${window.startDate}_to_${window.endDate}.csv"
             )
 
@@ -179,7 +179,7 @@ object CsvWindowManager {
 
     private fun deleteExistingWindowFiles(context: Context, client: ClientProfile) {
         val safeClientName = sanitizeFileName(client.clientName)
-        context.filesDir
+        getClientFolder(context, client)
             .listFiles()
             ?.filter { file ->
                 file.isFile &&
@@ -187,6 +187,18 @@ object CsvWindowManager {
                         file.name.endsWith(".csv")
             }
             ?.forEach { it.delete() }
+    }
+
+    fun getClientFolder(context: Context, client: ClientProfile): File {
+        val relativeFolder = client.localFolder.ifBlank {
+            "defaultfolder/${sanitizeFileName(client.clientName)}"
+        }
+
+        val folder = File(context.filesDir, relativeFolder)
+        if (!folder.exists()) {
+            folder.mkdirs()
+        }
+        return folder
     }
 
     private fun csvEscape(value: String): String {

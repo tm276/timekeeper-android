@@ -81,7 +81,7 @@ class TimeLogStore(context: Context) {
             clientName = clientName,
             userName = userName,
             csvFileName = csvFileName,
-            localFolder = localFolder,
+            localFolder = localFolder.ifBlank { defaultLocalFolderForClient(clientName) },
             googleDriveAccount = googleDriveAccount,
             googleDriveFolder = googleDriveFolder,
             nextcloudUrl = nextcloudUrl,
@@ -121,7 +121,8 @@ class TimeLogStore(context: Context) {
             val fallback = ClientProfile(
                 id = UUID.randomUUID().toString(),
                 clientName = "Default Client",
-                userName = settings.userName
+                userName = settings.userName,
+                localFolder = defaultLocalFolderForClient("Default Client")
             )
             clients.add(fallback)
             persistence.saveClients(clients)
@@ -253,8 +254,9 @@ class TimeLogStore(context: Context) {
 
     private fun getLocalFilesForClient(client: ClientProfile): List<File> {
         val safeClientName = sanitizeFileName(client.clientName)
+        val folder = CsvWindowManager.getClientFolder(appContext, client)
 
-        return appContext.filesDir
+        return folder
             .listFiles()
             ?.filter { file ->
                 file.isFile &&
@@ -263,6 +265,10 @@ class TimeLogStore(context: Context) {
             }
             ?.sortedByDescending { it.name }
             .orEmpty()
+    }
+
+    private fun defaultLocalFolderForClient(clientName: String): String {
+        return "defaultfolder/${sanitizeFileName(clientName)}"
     }
 
     private fun sanitizeFileName(value: String): String {

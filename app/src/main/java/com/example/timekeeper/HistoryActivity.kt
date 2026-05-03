@@ -72,10 +72,10 @@ data class CsvHistoryEntry(
 @Composable
 private fun HistoryScreen(onBack: () -> Unit, filesDir: File) {
     val csvFiles = remember {
-        filesDir.listFiles()
-            ?.filter { it.isFile && it.name.startsWith("timelog_") && it.name.endsWith(".csv") }
-            ?.sortedByDescending { it.name }
-            .orEmpty()
+        filesDir.walkTopDown()
+            .filter { it.isFile && it.name.startsWith("timelog_") && it.name.endsWith(".csv") }
+            .sortedByDescending { it.name }
+            .toList()
     }
 
     var selectedFile by remember { mutableStateOf(csvFiles.firstOrNull()) }
