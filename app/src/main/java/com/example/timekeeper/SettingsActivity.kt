@@ -1,14 +1,17 @@
 package com.example.timekeeper
 
-import android.Manifest
 import android.os.Bundle
-import android.content.pm.PackageManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import com.google.android.gms.common.api.ApiException
+import com.google.android.gms.common.api.Scope
+import com.google.api.services.drive.DriveScopes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -48,7 +51,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.ZoneId
@@ -89,6 +91,17 @@ class SettingsActivity : ComponentActivity() {
     }
 }
 
+
+private fun defaultRemoteClientFolder(clientName: String): String {
+    val safeClientName = clientName
+        .trim()
+        .replace(Regex("[^A-Za-z0-9._-]+"), "_")
+        .trim('_')
+        .ifBlank { "client" }
+
+    return "TimeKeeper/$safeClientName"
+}
+
 @Composable
 private fun SettingsScreen(
     clientId: String?,
@@ -123,6 +136,7 @@ private fun SettingsScreen(
         return
     }
 
+    var showGoogleDriveConnect by remember { mutableStateOf(false) }
     var showNextcloudConnect by remember { mutableStateOf(false) }
     var showNextcloudManual by remember { mutableStateOf(false) }
     var showLocalFiles by remember { mutableStateOf(false) }
@@ -139,9 +153,14 @@ private fun SettingsScreen(
     var nextcloudUser by remember(client.id) { mutableStateOf(client.nextcloudUser) }
     var nextcloudPassword by remember(client.id) { mutableStateOf(client.nextcloudPassword) }
     var nextcloudFolder by remember(client.id) {
-        mutableStateOf(client.nextcloudFolder.ifBlank { "TimeKeeper" })
+        mutableStateOf(client.nextcloudFolder.ifBlank { defaultRemoteClientFolder(client.clientName) })
+    }
+    var googleDriveAccount by remember(client.id) { mutableStateOf(client.googleDriveAccount) }
+    var googleDriveFolder by remember(client.id) {
+        mutableStateOf(client.googleDriveFolder.ifBlank { defaultRemoteClientFolder(client.clientName) })
     }
     var autoSyncEnabled by remember(client.id) { mutableStateOf(client.autoSyncEnabled) }
+    var syncGoogleDriveEnabled by remember(client.id) { mutableStateOf(client.syncGoogleDriveEnabled) }
     var syncNextcloudEnabled by remember(client.id) { mutableStateOf(client.syncNextcloudEnabled) }
 
     var isConnectingNextcloud by remember { mutableStateOf(false) }
@@ -153,25 +172,13 @@ private fun SettingsScreen(
     val localFiles = remember(client.id, localFilesVersion) {
         store.getLocalFilesForClient(client.id)
     }
+    val googleSignInClient = remember(context) {
+        val options = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+            .requestEmail()
+            .requestScopes(Scope(DriveScopes.DRIVE_FILE))
+            .build()
 
-    val workSiteStore = remember { WorkSiteStore(appContext) }
-    var workSitesVersion by remember { mutableStateOf(0) }
-    val clientWorkSites = remember(client.id, workSitesVersion) {
-        workSiteStore.sitesForClient(client.id)
-    }
-    var workSiteName by remember(client.id) { mutableStateOf("") }
-    var workSiteRadiusMeters by remember(client.id) {
-        mutableStateOf(WorkSite.DEFAULT_RADIUS_METERS.toInt().toString())
-    }
-    var isAddingWorkSite by remember { mutableStateOf(false) }
-    val locationPermissionLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestPermission()
-    ) { granted ->
-        statusMessage = if (granted) {
-            "Location permission granted. Tap Add Current Location again to save this work site."
-        } else {
-            "Location permission is needed to save your current location as a work site."
-        }
+        GoogleSignIn.getClient(context, options)
     }
 
     val previewSettings = store.settings.copy(
@@ -193,7 +200,10 @@ private fun SettingsScreen(
         user: String = nextcloudUser,
         password: String = nextcloudPassword,
         folder: String = nextcloudFolder,
+        driveAccount: String = googleDriveAccount,
+        driveFolder: String = googleDriveFolder,
         autoSync: Boolean = autoSyncEnabled,
+        googleDriveSync: Boolean = syncGoogleDriveEnabled,
         nextcloudSync: Boolean = syncNextcloudEnabled,
         newGlobalUserName: String = userName,
         weekEndDay: WeekEndDay = selectedWeekEndDay
@@ -215,8 +225,10 @@ private fun SettingsScreen(
             nextcloudUser = user.trim(),
             nextcloudPassword = password,
             nextcloudFolder = folder.trim(),
+            googleDriveAccount = driveAccount.trim(),
+            googleDriveFolder = driveFolder.trim(),
             autoSyncEnabled = autoSync,
-            syncGoogleDriveEnabled = false,
+            syncGoogleDriveEnabled = googleDriveSync,
             syncNextcloudEnabled = nextcloudSync
         )
         store.updateClient(updatedClient)
@@ -228,6 +240,35 @@ private fun SettingsScreen(
         )
         ClientSyncScheduler.rescheduleIfEnabled(appContext, updatedClient)
     }
+
+    val googleDriveSignInLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        try {
+            val account = GoogleSignIn
+                .getSignedInAccountFromIntent(result.data)
+                .getResult(ApiException::class.java)
+
+            val email = account.email.orEmpty()
+            googleDriveAccount = email
+            syncGoogleDriveEnabled = true
+
+            saveClient(
+                driveAccount = email,
+                driveFolder = googleDriveFolder,
+                googleDriveSync = true
+            )
+
+            statusMessage = if (email.isNotBlank()) {
+                "Google Drive connected as $email."
+            } else {
+                "Google Drive connected."
+            }
+        } catch (e: Exception) {
+            statusMessage = e.message ?: "Google Drive sign-in failed."
+        }
+    }
+
 
     Column(
         modifier = Modifier
@@ -357,19 +398,29 @@ private fun SettingsScreen(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "Enable Nextcloud sync",
+                        text = "Enable Google Drive sync",
                         modifier = Modifier.weight(1f),
                         color = SettingsPrimaryText
                     )
                     Spacer(modifier = Modifier.width(12.dp))
                     Switch(
-                        checked = syncNextcloudEnabled,
+                        checked = syncGoogleDriveEnabled,
                         onCheckedChange = {
-                            syncNextcloudEnabled = it
-                            saveClient(nextcloudSync = it)
+                            syncGoogleDriveEnabled = it
+                            saveClient(googleDriveSync = it)
                         }
                     )
                 }
+
+                Text(
+                    text = "Google Drive account: ${googleDriveAccount.ifBlank { "Not connected" }}",
+                    color = SettingsSecondaryText
+                )
+
+                Text(
+                    text = "Google Drive folder: ${googleDriveFolder.ifBlank { "Not set" }}",
+                    color = SettingsSecondaryText
+                )
 
                 Text(
                     text = "Nextcloud folder: ${nextcloudFolder.ifBlank { "Not set" }}",
@@ -546,169 +597,6 @@ private fun SettingsScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Text(
-                    text = "Work Sites",
-                    color = SettingsPrimaryText,
-                    fontWeight = FontWeight.Bold
-                )
-
-                Text(
-                    text = "Save job-site locations for this client. Locations stay on this device and are only checked when opening the home page or starting time.",
-                    color = SettingsSecondaryText
-                )
-
-                if (clientWorkSites.isEmpty()) {
-                    Text(
-                        text = "No work sites saved for this client yet.",
-                        color = SettingsSecondaryText
-                    )
-                } else {
-                    clientWorkSites.forEach { site ->
-                        Surface(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(16.dp),
-                            color = SettingsCardBackground
-                        ) {
-                            Column(
-                                modifier = Modifier.padding(12.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Text(
-                                    text = site.siteName,
-                                    color = SettingsPrimaryText,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = "Radius: ${site.radiusMeters.toInt()} meters",
-                                    color = SettingsSecondaryText
-                                )
-                                Text(
-                                    text = "Latitude ${site.latitude}, longitude ${site.longitude}",
-                                    color = SettingsSecondaryText
-                                )
-                                Button(
-                                    onClick = {
-                                        workSiteStore.deleteSite(site.id)
-                                        workSitesVersion += 1
-                                        statusMessage = "Deleted work site: ${site.siteName}."
-                                    },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .heightIn(min = 56.dp),
-                                    colors = ButtonDefaults.buttonColors(
-                                        containerColor = SettingsDangerAction,
-                                        contentColor = Color.Black
-                                    )
-                                ) {
-                                    Text("Delete Work Site")
-                                }
-                            }
-                        }
-                    }
-                }
-
-                OutlinedTextField(
-                    value = workSiteName,
-                    onValueChange = { workSiteName = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Work site name") },
-                    singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = SettingsPanelBackground,
-                        unfocusedContainerColor = SettingsPanelBackground,
-                        focusedBorderColor = SettingsPrimaryAction,
-                        unfocusedBorderColor = SettingsBorderColor,
-                        focusedTextColor = SettingsPrimaryText,
-                        unfocusedTextColor = SettingsPrimaryText,
-                        focusedLabelColor = SettingsPrimaryAction,
-                        unfocusedLabelColor = SettingsSecondaryText,
-                        cursorColor = SettingsPrimaryAction
-                    )
-                )
-
-                OutlinedTextField(
-                    value = workSiteRadiusMeters,
-                    onValueChange = { workSiteRadiusMeters = it.filter { char -> char.isDigit() } },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Radius meters") },
-                    singleLine = true,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedContainerColor = SettingsPanelBackground,
-                        unfocusedContainerColor = SettingsPanelBackground,
-                        focusedBorderColor = SettingsPrimaryAction,
-                        unfocusedBorderColor = SettingsBorderColor,
-                        focusedTextColor = SettingsPrimaryText,
-                        unfocusedTextColor = SettingsPrimaryText,
-                        focusedLabelColor = SettingsPrimaryAction,
-                        unfocusedLabelColor = SettingsSecondaryText,
-                        cursorColor = SettingsPrimaryAction
-                    )
-                )
-
-                Button(
-                    onClick = {
-                        val hasLocationPermission = ContextCompat.checkSelfPermission(
-                            context,
-                            Manifest.permission.ACCESS_FINE_LOCATION
-                        ) == PackageManager.PERMISSION_GRANTED
-
-                        if (!hasLocationPermission) {
-                            locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
-                            return@Button
-                        }
-
-                        val radius = workSiteRadiusMeters.toDoubleOrNull()
-                            ?: WorkSite.DEFAULT_RADIUS_METERS
-
-                        isAddingWorkSite = true
-                        statusMessage = "Getting current location..."
-
-                        scope.launch {
-                            val location = CurrentLocationProvider.getCurrentLocation(appContext)
-                            if (location == null) {
-                                statusMessage = "Could not get current location. Check location services and permission."
-                                isAddingWorkSite = false
-                                return@launch
-                            }
-
-                            val savedSite = workSiteStore.addSite(
-                                clientId = client.id,
-                                siteName = workSiteName,
-                                latitude = location.latitude,
-                                longitude = location.longitude,
-                                radiusMeters = radius
-                            )
-
-                            workSiteName = ""
-                            workSiteRadiusMeters = WorkSite.DEFAULT_RADIUS_METERS.toInt().toString()
-                            workSitesVersion += 1
-                            statusMessage = "Saved work site: ${savedSite.siteName}."
-                            isAddingWorkSite = false
-                        }
-                    },
-                    enabled = !isAddingWorkSite,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .heightIn(min = 56.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = SettingsPrimaryAction,
-                        contentColor = Color.Black
-                    )
-                ) {
-                    Text(if (isAddingWorkSite) "Saving Work Site..." else "Add Current Location as Work Site")
-                }
-            }
-        }
-
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(20.dp),
-            color = SettingsPanelBackground
-        ) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Text(
                     text = "Services",
                     color = SettingsPrimaryText,
                     fontWeight = FontWeight.Bold
@@ -716,8 +604,103 @@ private fun SettingsScreen(
 
                 Button(
                     onClick = {
+                        showGoogleDriveConnect = !showGoogleDriveConnect
+                        if (showGoogleDriveConnect) {
+                            showNextcloudConnect = false
+                            showNextcloudManual = false
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(18.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = SettingsPrimaryAction,
+                        contentColor = Color.Black
+                    )
+                ) {
+                    Text("Connect to Google Drive")
+                }
+
+                if (showGoogleDriveConnect) {
+                    Surface(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        color = SettingsCardBackground
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text(
+                                text = "Google Drive stores this client's files in your Drive. Default folder: ${defaultRemoteClientFolder(client.clientName)}",
+                                color = SettingsSecondaryText
+                            )
+
+                            OutlinedTextField(
+                                value = googleDriveFolder,
+                                onValueChange = { googleDriveFolder = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                label = { Text("Google Drive folder") },
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedContainerColor = SettingsPanelBackground,
+                                    unfocusedContainerColor = SettingsPanelBackground,
+                                    focusedBorderColor = SettingsPrimaryAction,
+                                    unfocusedBorderColor = SettingsBorderColor,
+                                    focusedTextColor = SettingsPrimaryText,
+                                    unfocusedTextColor = SettingsPrimaryText,
+                                    focusedLabelColor = SettingsPrimaryAction,
+                                    unfocusedLabelColor = SettingsSecondaryText,
+                                    cursorColor = SettingsPrimaryAction
+                                )
+                            )
+
+                            Button(
+                                onClick = {
+                                    googleDriveSignInLauncher.launch(googleSignInClient.signInIntent)
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = SettingsPrimaryAction,
+                                    contentColor = Color.Black
+                                )
+                            ) {
+                                Text(if (googleDriveAccount.isBlank()) "Sign in with Google Drive" else "Change Google Drive Account")
+                            }
+
+                            Button(
+                                onClick = {
+                                    saveClient(
+                                        driveAccount = googleDriveAccount,
+                                        driveFolder = googleDriveFolder,
+                                        googleDriveSync = syncGoogleDriveEnabled
+                                    )
+                                    statusMessage = "Google Drive settings saved."
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = SettingsSecondaryAction,
+                                    contentColor = SettingsPrimaryText
+                                )
+                            ) {
+                                Text("Save Google Drive Folder")
+                            }
+
+                            if (googleDriveAccount.isNotBlank()) {
+                                Text(
+                                    text = "Signed in as: $googleDriveAccount",
+                                    color = SettingsSecondaryText
+                                )
+                            }
+                        }
+                    }
+                }
+
+                Button(
+                    onClick = {
                         showNextcloudConnect = !showNextcloudConnect
-                        if (showNextcloudConnect) showNextcloudManual = false
+                        if (showNextcloudConnect) {
+                            showNextcloudManual = false
+                            showGoogleDriveConnect = false
+                        }
                     },
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(18.dp),
@@ -852,7 +835,10 @@ private fun SettingsScreen(
                 Button(
                     onClick = {
                         showNextcloudManual = !showNextcloudManual
-                        if (showNextcloudManual) showNextcloudConnect = false
+                        if (showNextcloudManual) {
+                            showNextcloudConnect = false
+                            showGoogleDriveConnect = false
+                        }
                     },
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(18.dp),

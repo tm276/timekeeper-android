@@ -36,8 +36,10 @@ object NextcloudSyncManager {
             )
             val encodedUsername = encodeDavSegment(settings.username)
             val trimmedServer = settings.serverUrl.trimEnd('/')
-            val trimmedFolder =
-                settings.remoteFolder.trim('/').ifBlank { "TimeKeeper/${clientProfile.clientName}" }
+            val trimmedFolder = buildClientRemoteFolder(
+                baseFolder = settings.remoteFolder,
+                clientName = clientProfile.clientName
+            )
             val auth = basicAuth(settings.username, settings.appPassword)
             ensureRemoteFolderExists(
                 serverUrl = trimmedServer,
@@ -111,6 +113,28 @@ object NextcloudSyncManager {
             }
         }
     }
+    private fun buildClientRemoteFolder(baseFolder: String, clientName: String): String {
+        val base = baseFolder.trim('/').ifBlank { "TimeKeeper" }
+        val safeClientName = sanitizeRemoteSegment(clientName)
+        val lastSegment = base.split('/').lastOrNull().orEmpty()
+
+        return if (lastSegment.equals(safeClientName, ignoreCase = true) ||
+            lastSegment.equals(clientName.trim(), ignoreCase = true)
+        ) {
+            base
+        } else {
+            "$base/$safeClientName"
+        }
+    }
+
+    private fun sanitizeRemoteSegment(value: String): String {
+        return value
+            .trim()
+            .replace('/', '_')
+            .replace('\\', '_')
+            .ifBlank { "Client" }
+    }
+
     private fun encodeRemotePath(path: String): String {
         return path
             .split('/')

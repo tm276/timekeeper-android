@@ -48,9 +48,10 @@ object GoogleDriveSyncManager {
             val windowKey = "${client.id}_${window.startDate}_${window.endDate}"
             val driveService = createDriveService(context, account)
 
-            val targetFolder = client.googleDriveFolder
-                .trim('/')
-                .ifBlank { "$ROOT_FOLDER_NAME/${client.clientName}" }
+            val targetFolder = buildClientRemoteFolder(
+                baseFolder = client.googleDriveFolder,
+                clientName = client.clientName
+            )
 
             val folderId = ensureFolderPathExists(
                 driveService = driveService,
@@ -112,6 +113,28 @@ object GoogleDriveSyncManager {
         } catch (e: Exception) {
             Result.failure(e)
         }
+    }
+
+    private fun buildClientRemoteFolder(baseFolder: String, clientName: String): String {
+        val base = baseFolder.trim('/').ifBlank { ROOT_FOLDER_NAME }
+        val safeClientName = sanitizeDriveFolderSegment(clientName)
+        val lastSegment = base.split('/').lastOrNull().orEmpty()
+
+        return if (lastSegment.equals(safeClientName, ignoreCase = true) ||
+            lastSegment.equals(clientName.trim(), ignoreCase = true)
+        ) {
+            base
+        } else {
+            "$base/$safeClientName"
+        }
+    }
+
+    private fun sanitizeDriveFolderSegment(value: String): String {
+        return value
+            .trim()
+            .replace('/', '_')
+            .replace('\\', '_')
+            .ifBlank { "Client" }
     }
 
     private fun ensureFolderPathExists(
