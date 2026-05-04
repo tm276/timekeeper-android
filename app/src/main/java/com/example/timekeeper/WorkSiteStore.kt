@@ -79,7 +79,9 @@ class WorkSiteStore(context: Context) {
     fun deleteSitesForClient(clientId: String) {
         saveSites(loadSites().filterNot { it.clientId == clientId })
     }
-
+    fun pruneOrphanedSites(validClientIds: Set<String>) {
+        saveSites(loadSites().filter { it.clientId in validClientIds })
+    }
     private fun WorkSite.toJson(): JSONObject {
         return JSONObject().apply {
             put("id", id)
