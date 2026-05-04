@@ -54,7 +54,9 @@ class TimeLogStore(context: Context) {
             persistence.clearActiveClientId()
             persistence.clearActiveStartMillis()
         }
+        WorkSiteStore(appContext).pruneOrphanedSites(clients.map { it.id }.toSet())
     }
+
 
     fun updateSettings(newSettings: TimeSettings) {
         settings = newSettings
