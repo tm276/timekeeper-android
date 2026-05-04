@@ -113,6 +113,7 @@ class TimeLogStore(context: Context) {
         }
 
         deleteAllLocalFilesForClient(client)
+        WorkSiteStore(appContext).deleteSitesForClient(clientId)
 
         clients.removeAll { it.id == clientId }
         persistence.saveClients(clients)
@@ -253,15 +254,12 @@ class TimeLogStore(context: Context) {
     }
 
     private fun getLocalFilesForClient(client: ClientProfile): List<File> {
-        val safeClientName = sanitizeFileName(client.clientName)
         val folder = CsvWindowManager.getClientFolder(appContext, client)
 
         return folder
             .listFiles()
             ?.filter { file ->
-                file.isFile &&
-                        file.name.startsWith("timelog_${safeClientName}_") &&
-                        file.name.endsWith(".csv")
+                file.isFile && file.name.endsWith(".csv")
             }
             ?.sortedByDescending { it.name }
             .orEmpty()

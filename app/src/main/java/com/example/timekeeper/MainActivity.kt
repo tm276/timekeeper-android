@@ -50,6 +50,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 private val MainAppBackground = Color(0xFF121212)
@@ -87,21 +88,28 @@ private fun MainScreen() {
     val store = remember { TimeLogStore(context.applicationContext) }
     val workSiteStore = remember { WorkSiteStore(context.applicationContext) }
 
-    var currentSiteMatch by remember { mutableStateOf<LocationMatcher.Match?>(null) }
+    var currentSiteMatches by remember { mutableStateOf<List<LocationMatcher.Match>>(emptyList()) }
     val coroutineScope = rememberCoroutineScope()
 
     fun refreshCurrentSite() {
         coroutineScope.launch {
             val location = CurrentLocationProvider.getCurrentLocation(context.applicationContext)
-            currentSiteMatch = if (location != null) {
-                LocationMatcher.findCurrentSite(
+            currentSiteMatches = if (location != null) {
+                LocationMatcher.findCurrentSites(
                     latitude = location.latitude,
                     longitude = location.longitude,
                     workSites = workSiteStore.loadSites()
                 )
             } else {
-                null
+                emptyList()
             }
+        }
+    }
+
+    fun autoSyncIfEnabled() {
+        coroutineScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val autoClient = store.clients.firstOrNull { it.autoSyncEnabled } ?: return@launch
+            SyncOrchestrator.sync(context.applicationContext)
         }
     }
 
@@ -124,6 +132,8 @@ private fun MainScreen() {
         } else {
             locationPermissionLauncher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
         }
+
+        autoSyncIfEnabled()
     }
 
     var showCreateDialog by remember { mutableStateOf(false) }
@@ -203,8 +213,8 @@ private fun MainScreen() {
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 items(store.clients, key = { it.id }) { client ->
-                    val currentSite = currentSiteMatch?.workSite
-                    val isAtCurrentSite = currentSite?.clientId == client.id
+                    val currentSite = currentSiteMatches.firstOrNull { it.workSite.clientId == client.id }?.workSite
+                    val isAtCurrentSite = currentSite != null
                     val clientCardDescription = buildString {
                         append("Open client ${client.clientName}")
                         if (client.userName.isNotBlank()) {

@@ -411,6 +411,24 @@ private fun SettingsScreen(
                         }
                     )
                 }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Enable Nextcloud sync",
+                        modifier = Modifier.weight(1f),
+                        color = SettingsPrimaryText
+                    )
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Switch(
+                        checked = syncNextcloudEnabled,
+                        onCheckedChange = {
+                            syncNextcloudEnabled = it
+                            saveClient(nextcloudSync = it)
+                        }
+                    )
+                }
 
                 Text(
                     text = "Google Drive account: ${googleDriveAccount.ifBlank { "Not connected" }}",

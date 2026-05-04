@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -171,6 +172,8 @@ private fun ClientScreen(
     var showWrongSiteWarning by remember { mutableStateOf(false) }
     var warningSite by remember { mutableStateOf<WorkSite?>(null) }
     var warningClientName by remember { mutableStateOf("another client") }
+    data class MatchedClient(val clientId: String, val clientName: String, val siteName: String)
+    var warningMatchedClients by remember { mutableStateOf<List<MatchedClient>>(emptyList()) }
 
     fun startTimerForCurrentClient() {
         store.startTimer(client.id)
@@ -180,18 +183,28 @@ private fun ClientScreen(
     fun checkLocationBeforeStart() {
         coroutineScope.launch {
             val location = CurrentLocationProvider.getCurrentLocation(context.applicationContext)
-            val match = location?.let { currentLocation ->
-                LocationMatcher.findCurrentSite(
+            val allSites = WorkSiteStore(context.applicationContext).loadSites()
+            val matches = location?.let { currentLocation ->
+                LocationMatcher.findCurrentSites(
                     latitude = currentLocation.latitude,
                     longitude = currentLocation.longitude,
-                    workSites = WorkSiteStore(context.applicationContext).loadSites()
+                    workSites = allSites
                 )
-            }
+            } ?: emptyList()
 
-            val matchedSite = match?.workSite
-            if (matchedSite != null && matchedSite.clientId != client.id) {
-                warningSite = matchedSite
-                warningClientName = store.getClientById(matchedSite.clientId)?.clientName ?: "another client"
+            val currentClientMatches = matches.filter { it.workSite.clientId == client.id }
+            val wrongMatches = matches.filter { it.workSite.clientId != client.id }.take(3)
+
+            if (wrongMatches.isNotEmpty() && currentClientMatches.isEmpty()) {
+                warningSite = wrongMatches.first().workSite
+                warningClientName = store.getClientById(wrongMatches.first().workSite.clientId)?.clientName ?: "another client"
+                warningMatchedClients = wrongMatches.map { match ->
+                    MatchedClient(
+                        clientId = match.workSite.clientId,
+                        clientName = store.getClientById(match.workSite.clientId)?.clientName ?: "Unknown",
+                        siteName = match.workSite.siteName
+                    )
+                }
                 showWrongSiteWarning = true
             } else {
                 startTimerForCurrentClient()
@@ -528,6 +541,7 @@ private fun ClientScreen(
             onDismissRequest = {
                 showWrongSiteWarning = false
                 warningSite = null
+                warningMatchedClients = emptyList()
             },
             containerColor = ClientPanelBackground,
             titleContentColor = ClientPrimaryText,
@@ -536,19 +550,57 @@ private fun ClientScreen(
                 Text("Wrong Client Site?")
             },
             text = {
-                Text(
-                    text = if (site != null) {
-                        "You appear to be at $warningClientName — ${site.siteName}, but you are starting time for ${client.clientName}."
-                    } else {
-                        "You appear to be at another client site, but you are starting time for ${client.clientName}."
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "You appear to be at ${site?.siteName ?: "another site"}. The following clients are registered at this location:",
+                        color = ClientSecondaryText
+                    )
+                    if (warningMatchedClients.isNotEmpty()) {
+                        Column(
+                            modifier = Modifier
+                                .heightIn(max = 200.dp)
+                                .verticalScroll(rememberScrollState()),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            warningMatchedClients.forEach { matched ->
+                                Surface(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            showWrongSiteWarning = false
+                                            warningSite = null
+                                            warningMatchedClients = emptyList()
+                                            context.startActivity(
+                                                Intent(context, ClientActivity::class.java)
+                                                    .putExtra(EXTRA_CLIENT_ID, matched.clientId)
+                                            )
+                                        },
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = ClientCardBackground
+                                ) {
+                                    Column(modifier = Modifier.padding(10.dp)) {
+                                        Text(
+                                            text = matched.clientName,
+                                            color = ClientPrimaryText,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = "Site: ${matched.siteName}",
+                                            color = ClientSecondaryText
+                                        )
+                                    }
+                                }
+                            }
+                        }
                     }
-                )
+                }
             },
             confirmButton = {
                 Button(
                     onClick = {
                         showWrongSiteWarning = false
                         warningSite = null
+                        warningMatchedClients = emptyList()
                         startTimerForCurrentClient()
                     },
                     colors = ButtonDefaults.buttonColors(
@@ -563,28 +615,9 @@ private fun ClientScreen(
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(
                         onClick = {
-                            val destinationClientId = site?.clientId
                             showWrongSiteWarning = false
                             warningSite = null
-                            if (destinationClientId != null) {
-                                context.startActivity(
-                                    Intent(context, ClientActivity::class.java)
-                                        .putExtra(EXTRA_CLIENT_ID, destinationClientId)
-                                )
-                            }
-                        },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = ClientSecondaryAction,
-                            contentColor = ClientPrimaryText
-                        )
-                    ) {
-                        Text("Go to Site Client")
-                    }
-
-                    Button(
-                        onClick = {
-                            showWrongSiteWarning = false
-                            warningSite = null
+                            warningMatchedClients = emptyList()
                         },
                         colors = ButtonDefaults.buttonColors(
                             containerColor = ClientSecondaryAction,
