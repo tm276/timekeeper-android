@@ -46,11 +46,21 @@ object SyncOrchestrator {
             }
 
             if (SyncService.NEXTCLOUD in available) {
+                val baseFolder = client.nextcloudFolder.trim()
+                val remoteFolder = if (baseFolder.isBlank()) {
+                    val safeName = client.clientName.trim()
+                        .replace(Regex("[^A-Za-z0-9._-]+"), "_")
+                        .trim('_')
+                        .ifBlank { "client" }
+                    "TimeKeeper/$safeName"
+                } else {
+                    baseFolder
+                }
                 val settings = NextcloudSettings(
                     serverUrl = client.nextcloudUrl,
                     username = client.nextcloudUser,
-                    appPassword = client.nextcloudPassword,
-                    remoteFolder = client.nextcloudFolder.ifBlank { "TimeKeeper" }
+                    appPassword = KeystoreManager.loadNextcloudPassword(appContext, client.id),
+                    remoteFolder = remoteFolder
                 )
                 val nextcloudResult = NextcloudSyncManager.syncCurrentWindow(
                     context = appContext,

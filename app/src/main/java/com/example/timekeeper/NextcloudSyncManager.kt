@@ -36,10 +36,8 @@ object NextcloudSyncManager {
             )
             val encodedUsername = encodeDavSegment(settings.username)
             val trimmedServer = settings.serverUrl.trimEnd('/')
-            val trimmedFolder = buildClientRemoteFolder(
-                baseFolder = settings.remoteFolder,
-                clientName = clientProfile.clientName
-            )
+            // Use remoteFolder exactly as passed - caller is responsible for correct path
+            val trimmedFolder = settings.remoteFolder.trim('/')
             val auth = basicAuth(settings.username, settings.appPassword)
             ensureRemoteFolderExists(
                 serverUrl = trimmedServer,
